@@ -4,6 +4,7 @@ import numpy as np
 from scipy.ndimage import median_filter
 
 from .config import TranscriptionConfig
+from .constants import A4_FREQUENCY
 from .models import PitchFrame
 
 logger = logging.getLogger(__name__)
@@ -109,5 +110,5 @@ class PitchProcessor:
     def _midi_to_frequency(self, midi: float) -> float:
         if midi <= 0:
             return 0.0
-        return 440.0 * (2 ** ((midi - 69) / 12))
+        return A4_FREQUENCY * (2 ** ((midi - 69) / 12))
 

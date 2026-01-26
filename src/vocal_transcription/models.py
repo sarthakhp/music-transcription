@@ -27,10 +27,23 @@ class NoteEvent:
 
 
 @dataclass
+class KeyInfo:
+    tonic_midi: int
+    tonic_frequency: float
+    tonic_name: str
+    scale_type: str
+    scale_intervals: list[int] = field(default_factory=list)
+    swara_usage: dict[str, float] = field(default_factory=dict)
+    confidence: float = 0.0
+    detected_notes: list[int] = field(default_factory=list)
+
+
+@dataclass
 class TranscriptionResult:
     notes: list[NoteEvent] = field(default_factory=list)
     pitch_contour: list[PitchFrame] = field(default_factory=list)
     tempo_bpm: float = 120.0
     duration: float = 0.0
     sample_rate: int = 44100
+    key_info: KeyInfo | None = None
 

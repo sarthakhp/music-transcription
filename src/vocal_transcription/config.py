@@ -22,7 +22,7 @@ class TranscriptionConfig:
     silence_threshold_db: float = -40.0
 
     # Notes shorter than this get merged with neighbors
-    min_note_duration_ms: int = 40
+    min_note_duration_ms: int = 80
 
     # Max pitch variance (semitones) for a region to be considered "stable"
     pitch_stability_threshold: float = 0.5
@@ -44,6 +44,15 @@ class TranscriptionConfig:
 
     # Number of frames to process at once (higher = faster, more memory)
     batch_size: int = 2048
+
+    # Whether to crop audio to specific time range
+    should_crop: bool = False
+
+    # Start time in seconds for cropping (only used if should_crop=True)
+    start_time: float = 0
+
+    # End time in seconds for cropping (only used if should_crop=True, None = end of file)
+    end_time: float | None = 10
 
     def get_device(self) -> str:
         if self.device != "auto":

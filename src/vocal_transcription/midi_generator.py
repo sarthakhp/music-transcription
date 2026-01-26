@@ -27,6 +27,11 @@ class MidiGenerator:
         tempo = mido.bpm2tempo(result.tempo_bpm or DEFAULT_TEMPO_BPM)
         meta_track.append(MetaMessage('set_tempo', tempo=tempo, time=0))
         meta_track.append(MetaMessage('time_signature', numerator=4, denominator=4, time=0))
+
+        if result.key_info:
+            key_signature = self._get_key_signature(result.key_info.tonic_name, result.key_info.scale_type)
+            meta_track.append(MetaMessage('key_signature', key=key_signature, time=0))
+
         meta_track.append(MetaMessage('track_name', name='Vocals', time=0))
 
         vocal_track = MidiTrack()
@@ -74,4 +79,22 @@ class MidiGenerator:
     def _ticks_to_seconds(self, ticks: int, tempo: int) -> float:
         beats = ticks / self.ticks_per_beat
         return beats * (tempo / 1_000_000)
+
+    def _get_key_signature(self, tonic_name: str, scale_type: str) -> str:
+        major_keys = {
+            "C": "C", "G": "G", "D": "D", "A": "A", "E": "E", "B": "B",
+            "F#": "F#", "C#": "C#", "F": "F", "Bb": "Bb", "Eb": "Eb",
+            "Ab": "Ab", "Db": "Db", "Gb": "Gb"
+        }
+
+        minor_keys = {
+            "A": "Am", "E": "Em", "B": "Bm", "F#": "F#m", "C#": "C#m",
+            "G#": "G#m", "D#": "D#m", "A#": "A#m", "D": "Dm", "G": "Gm",
+            "C": "Cm", "F": "Fm", "Bb": "Bbm", "Eb": "Ebm"
+        }
+
+        if "minor" in scale_type.lower() or scale_type.lower() in ["kafi", "asavari", "bhairavi"]:
+            return minor_keys.get(tonic_name, "C")
+        else:
+            return major_keys.get(tonic_name, "C")
 
