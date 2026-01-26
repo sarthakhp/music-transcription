@@ -70,6 +70,8 @@ def main():
     print(f"Duration: {result.duration:.2f} seconds")
     print(f"Notes detected: {len(result.notes)}")
     print(f"Tempo: {result.tempo_bpm:.1f} BPM")
+    if result.key_info:
+        print(f"Key: {result.key_info.tonic_name} {result.key_info.scale_type} (confidence: {result.key_info.confidence:.2f})")
     print(f"Output: {midi_path}")
     print(f"{'='*60}")
 
