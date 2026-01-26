@@ -4,7 +4,7 @@
 # Core Audio Processing
 librosa>=0.10.0
 soundfile>=0.12.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.4
 scipy>=1.10.0
 
 # Source Separation (BS-RoFormer via audio-separator)
@@ -13,8 +13,8 @@ audio-separator>=0.41.0
 # Vocal Transcription (GPU-accelerated pitch detection)
 torchcrepe>=0.0.24
 
-# Chord Recognition & Beat Tracking
-# (will add modern alternatives when implementing this module)
+# Tempo & Beat Tracking
+BeatNet>=0.1.0
 
 # MIDI Processing
 pretty_midi>=0.2.10
