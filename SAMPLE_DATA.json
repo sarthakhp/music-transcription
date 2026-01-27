@@ -1,0 +1,123 @@
+{
+  "metadata": {
+    "original_song_path": "/path/to/song.mp3",
+    "vocal_file_path": "/path/to/vocals.wav",
+    "bpm": 144.23
+  },
+  "processed_frames": [
+    {
+      "time": 0.0,
+      "frequency": 0.0,
+      "confidence": 0.005,
+      "midi_pitch": 0.0,
+      "is_voiced": false
+    },
+    {
+      "time": 0.01,
+      "frequency": 0.0,
+      "confidence": 0.005,
+      "midi_pitch": 0.0,
+      "is_voiced": false
+    },
+    {
+      "time": 7.2,
+      "frequency": 119.58,
+      "confidence": 0.68,
+      "midi_pitch": 46.44,
+      "is_voiced": true
+    },
+    {
+      "time": 7.21,
+      "frequency": 119.09,
+      "confidence": 0.73,
+      "midi_pitch": 46.37,
+      "is_voiced": true
+    },
+    {
+      "time": 7.22,
+      "frequency": 118.74,
+      "confidence": 0.81,
+      "midi_pitch": 46.32,
+      "is_voiced": true
+    },
+    {
+      "time": 7.23,
+      "frequency": 118.74,
+      "confidence": 0.80,
+      "midi_pitch": 46.32,
+      "is_voiced": true
+    },
+    {
+      "time": 7.24,
+      "frequency": 118.74,
+      "confidence": 0.67,
+      "midi_pitch": 46.32,
+      "is_voiced": true
+    },
+    {
+      "time": 7.25,
+      "frequency": 0.0,
+      "confidence": 0.58,
+      "midi_pitch": 0.0,
+      "is_voiced": false
+    },
+    {
+      "time": 7.26,
+      "frequency": 121.59,
+      "confidence": 0.69,
+      "midi_pitch": 46.73,
+      "is_voiced": true
+    },
+    {
+      "time": 7.27,
+      "frequency": 122.00,
+      "confidence": 0.69,
+      "midi_pitch": 46.79,
+      "is_voiced": true
+    },
+    {
+      "time": 10.5,
+      "frequency": 220.0,
+      "confidence": 0.92,
+      "midi_pitch": 57.01,
+      "is_voiced": true
+    },
+    {
+      "time": 10.51,
+      "frequency": 220.5,
+      "confidence": 0.91,
+      "midi_pitch": 57.03,
+      "is_voiced": true
+    },
+    {
+      "time": 10.52,
+      "frequency": 221.0,
+      "confidence": 0.89,
+      "midi_pitch": 57.05,
+      "is_voiced": true
+    },
+    {
+      "time": 15.0,
+      "frequency": 440.0,
+      "confidence": 0.95,
+      "midi_pitch": 69.0,
+      "is_voiced": true
+    },
+    {
+      "time": 15.01,
+      "frequency": 441.0,
+      "confidence": 0.94,
+      "midi_pitch": 69.04,
+      "is_voiced": true
+    },
+    {
+      "time": 15.02,
+      "frequency": 442.0,
+      "confidence": 0.93,
+      "midi_pitch": 69.08,
+      "is_voiced": true
+    }
+  ],
+  "frame_count": 16
+}
+

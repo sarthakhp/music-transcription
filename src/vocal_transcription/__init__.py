@@ -4,6 +4,7 @@ from .transcriber import VocalTranscriber
 from .tempo_detector import TempoDetector
 from .visualizer import PitchVisualizer
 from .key_detector import KeyScaleDetector
+from .frame_exporter import export_processed_frames
 
 __all__ = [
     "TranscriptionConfig",
@@ -15,5 +16,6 @@ __all__ = [
     "TempoDetector",
     "PitchVisualizer",
     "KeyScaleDetector",
+    "export_processed_frames",
 ]
 

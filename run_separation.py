@@ -3,7 +3,9 @@ import sys
 import logging
 from pathlib import Path
 
+import torch
 import torchaudio
+from pydub import AudioSegment
 
 from src.source_separation import SeparationConfig, AppleSiliconSeparator
 
@@ -42,14 +44,17 @@ def main():
     
     print(f"\nSeparation complete! Found {len(stems)} stems:")
     for stem_name, audio_data in stems.items():
-        output_path = output_dir / f"{audio_path.stem}_{stem_name}.wav"
-        audio_tensor = torchaudio.functional.resample(
-            __import__('torch').tensor(audio_data), 
-            config.sample_rate, 
-            config.sample_rate
-        )
-        torchaudio.save(str(output_path), audio_tensor, config.sample_rate)
-        print(f"  - {stem_name}: {output_path}")
+        wav_path = output_dir / f"{audio_path.stem}_{stem_name}.wav"
+        mp3_path = output_dir / f"{audio_path.stem}_{stem_name}.mp3"
+
+        audio_tensor = torch.tensor(audio_data)
+
+        torchaudio.save(str(wav_path), audio_tensor, config.sample_rate)
+        print(f"  - {stem_name} (WAV): {wav_path}")
+
+        audio_segment = AudioSegment.from_wav(str(wav_path))
+        audio_segment.export(str(mp3_path), format="mp3", bitrate="320k")
+        print(f"  - {stem_name} (MP3): {mp3_path}")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from .midi_generator import MidiGenerator
 from .visualizer import PitchVisualizer
 from .audio_trimmer import AudioTrimmer
 from .custom_algo import FrequencySmoothing
+from .frame_exporter import export_processed_frames
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,17 @@ class VocalTranscriber:
         logger.info("Step 1/5: Detecting pitch...")
         raw_frames = self.pitch_detector.detect_from_tensor(audio, sr)
 
-        logger.info("Step 2/5: Applying frequency smoothing...")
-        smoothed_frames = self.frequency_smoothing.smooth_frequencies(raw_frames)
-
         logger.info("Step 3/5: Processing pitch contour...")
-        processed_frames = self.pitch_processor.process(smoothed_frames)
+        processed_frames = self.pitch_processor.process(raw_frames)
+
+        frames_json_path = audio_path.parent / f"{audio_path.stem}_processed_frames.json"
+        export_processed_frames(
+            processed_frames=processed_frames,
+            output_path=frames_json_path,
+            original_song_path=original_audio_path,
+            vocal_file_path=audio_path,
+            bpm=tempo_bpm,
+        )
 
         logger.info("Step 4/5: Detecting key and scale...")
         from .key_detector import KeyScaleDetector
