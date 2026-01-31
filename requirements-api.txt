@@ -1,0 +1,30 @@
+# FastAPI Backend Dependencies
+# =============================
+
+# Core FastAPI
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+
+# Data Validation & Settings
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+
+# Database
+sqlalchemy>=2.0.36
+alembic>=1.14.0
+
+# Async File Operations
+aiofiles>=24.1.0
+
+# File Type Detection
+python-magic>=0.4.27
+
+# HTTP Client (for testing)
+httpx>=0.28.0
+
+# Development & Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+

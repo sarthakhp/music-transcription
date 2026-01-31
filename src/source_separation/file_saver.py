@@ -71,8 +71,12 @@ def copy_original_audio(
     output_format: Literal["mp3", "wav", "flac"] = "mp3",
     bitrate: str = "320k",
     verbose: bool = True,
+    base_filename: str | None = None,
 ) -> Path | None:
-    output_path = output_dir / f"{input_audio_path.stem}_original.{output_format}"
+    if base_filename:
+        output_path = output_dir / f"{base_filename}_original.{output_format}"
+    else:
+        output_path = output_dir / f"{input_audio_path.stem}_original.{output_format}"
 
     try:
         if input_audio_path.suffix.lower() == f".{output_format}":

@@ -90,20 +90,20 @@ class VocalTranscriber:
         logger.info("Step 5/5: Segmenting into notes...")
         notes = self.note_segmenter.segment(processed_frames)
 
-        visualizer = PitchVisualizer()
-        if output_dir:
-            viz_path = output_dir / f"{audio_path.stem}_pitch_analysis.png"
-        else:
-            viz_path = audio_path.parent / f"{audio_path.stem}_pitch_analysis.png"
-        visualizer.plot_processed_frames(processed_frames, notes=notes, output_path=viz_path, show=False)
-        logger.info(f"Saved pitch visualization to {viz_path}")
+        # visualizer = PitchVisualizer()
+        # if output_dir:
+        #     viz_path = output_dir / f"{audio_path.stem}_pitch_analysis.png"
+        # else:
+        #     viz_path = audio_path.parent / f"{audio_path.stem}_pitch_analysis.png"
+        # visualizer.plot_processed_frames(processed_frames, notes=notes, output_path=viz_path, show=False)
+        # logger.info(f"Saved pitch visualization to {viz_path}")
 
-        if output_dir:
-            key_viz_path = output_dir / f"{audio_path.stem}_key_analysis.png"
-        else:
-            key_viz_path = audio_path.parent / f"{audio_path.stem}_key_analysis.png"
-        visualizer.plot_key_analysis(processed_frames, key_info, output_path=key_viz_path, show=False)
-        logger.info(f"Saved key analysis visualization to {key_viz_path}")
+        # if output_dir:
+        #     key_viz_path = output_dir / f"{audio_path.stem}_key_analysis.png"
+        # else:
+        #     key_viz_path = audio_path.parent / f"{audio_path.stem}_key_analysis.png"
+        # visualizer.plot_key_analysis(processed_frames, key_info, output_path=key_viz_path, show=False)
+        # logger.info(f"Saved key analysis visualization to {key_viz_path}")
 
         result = TranscriptionResult(
             notes=notes,
