@@ -71,11 +71,16 @@ dmypy.json
 
 # Project Specific
 logs.txt
+logs/
 output/
 storage/
 files/*.webm
 files/*.mp3
 files/*.wav
+
+# Database
+*.db
+api.db
 
 # OS Specific
 .DS_Store
