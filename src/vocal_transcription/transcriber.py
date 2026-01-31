@@ -30,7 +30,12 @@ class VocalTranscriber:
 
         logger.info(f"VocalTranscriber initialized with device: {self.config.get_device()}")
 
-    def transcribe(self, audio_path: str | Path, original_audio_path: str | Path | None = None) -> TranscriptionResult:
+    def transcribe(
+        self,
+        audio_path: str | Path,
+        original_audio_path: str | Path | None = None,
+        output_dir: str | Path | None = None,
+    ) -> TranscriptionResult:
         audio_path = Path(audio_path)
         logger.info(f"Transcribing: {audio_path}")
 
@@ -52,7 +57,12 @@ class VocalTranscriber:
         logger.info("Step 3/5: Processing pitch contour...")
         processed_frames = self.pitch_processor.process(raw_frames)
 
-        frames_json_path = audio_path.parent / f"{audio_path.stem}_processed_frames.json"
+        if output_dir:
+            output_dir = Path(output_dir)
+            frames_json_path = output_dir / f"{audio_path.stem}_processed_frames.json"
+        else:
+            frames_json_path = audio_path.parent / f"{audio_path.stem}_processed_frames.json"
+
         export_processed_frames(
             processed_frames=processed_frames,
             output_path=frames_json_path,
@@ -60,6 +70,17 @@ class VocalTranscriber:
             vocal_file_path=audio_path,
             bpm=tempo_bpm,
         )
+
+        viewer_path = Path("/Users/psarthak/personal/projects/music-transcription-viewer/vocal_pitch_viewer/web/sample_data/pitch_data.json")
+        viewer_path.parent.mkdir(parents=True, exist_ok=True)
+        export_processed_frames(
+            processed_frames=processed_frames,
+            output_path=viewer_path,
+            original_song_path=original_audio_path,
+            vocal_file_path=audio_path,
+            bpm=tempo_bpm,
+        )
+        logger.info(f"Also saved processed frames to viewer location: {viewer_path}")
 
         logger.info("Step 4/5: Detecting key and scale...")
         from .key_detector import KeyScaleDetector
@@ -70,11 +91,17 @@ class VocalTranscriber:
         notes = self.note_segmenter.segment(processed_frames)
 
         visualizer = PitchVisualizer()
-        viz_path = audio_path.parent / f"{audio_path.stem}_pitch_analysis.png"
+        if output_dir:
+            viz_path = output_dir / f"{audio_path.stem}_pitch_analysis.png"
+        else:
+            viz_path = audio_path.parent / f"{audio_path.stem}_pitch_analysis.png"
         visualizer.plot_processed_frames(processed_frames, notes=notes, output_path=viz_path, show=False)
         logger.info(f"Saved pitch visualization to {viz_path}")
 
-        key_viz_path = audio_path.parent / f"{audio_path.stem}_key_analysis.png"
+        if output_dir:
+            key_viz_path = output_dir / f"{audio_path.stem}_key_analysis.png"
+        else:
+            key_viz_path = audio_path.parent / f"{audio_path.stem}_key_analysis.png"
         visualizer.plot_key_analysis(processed_frames, key_info, output_path=key_viz_path, show=False)
         logger.info(f"Saved key analysis visualization to {key_viz_path}")
 

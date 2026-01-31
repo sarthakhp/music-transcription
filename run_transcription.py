@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description="Transcribe vocals to MIDI")
-    parser.add_argument("audio_path", type=str, help="Path to vocals audio file")
+    parser.add_argument("--audio-path", type=str, default="/Users/psarthak/personal/projects/music-transcription/output/separated/mitti-ke-bete-120_sec_vocals.mp3", help="Path to vocals audio file")
     parser.add_argument("--output-dir", type=str, default="output/transcription", help="Output directory")
     parser.add_argument("--hop-size", type=int, default=10, help="Hop size in milliseconds")
     parser.add_argument("--model", type=str, default="full", choices=["tiny", "small", "medium", "large", "full"])
@@ -46,7 +46,11 @@ def main():
     transcriber = VocalTranscriber(config)
 
     logger.info(f"Transcribing: {audio_path}")
-    result = transcriber.transcribe(audio_path, original_audio_path=args.original_audio)
+    result = transcriber.transcribe(
+        audio_path,
+        original_audio_path=args.original_audio,
+        output_dir=output_dir,
+    )
 
     stem = audio_path.stem
 

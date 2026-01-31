@@ -65,10 +65,11 @@ python run_separation.py files/song.mp3 output/separated
 ```
 
 **Output:**
-- `song_vocals.wav`
-- `song_drums.wav`
-- `song_bass.wav`
-- `song_other.wav`
+- `song_vocals.mp3` - Vocals stem (320k bitrate)
+- `song_drums.mp3` - Drums stem (320k bitrate)
+- `song_bass.mp3` - Bass stem (320k bitrate)
+- `song_other.mp3` - Other instruments stem (320k bitrate)
+- `song_original.mp3` - Original input audio (copied/converted to MP3)
 
 ### 2. Vocal Transcription
 
@@ -89,7 +90,7 @@ python run_transcription.py <vocal_audio_file> [options]
 
 **Example:**
 ```bash
-python run_transcription.py output/separated/song_vocals.wav \
+python run_transcription.py output/separated/song_vocals.mp3 \
     --original-audio files/song.mp3 \
     --export-json \
     --export-csv
@@ -107,7 +108,7 @@ python run_transcription.py output/separated/song_vocals.wav \
 python run_separation.py files/bollywood_song.mp3 output/separated
 
 # Step 2: Transcribe vocals to MIDI
-python run_transcription.py output/separated/bollywood_song_vocals.wav \
+python run_transcription.py output/separated/bollywood_song_vocals.mp3 \
     --original-audio files/bollywood_song.mp3 \
     --export-json \
     --export-csv \
