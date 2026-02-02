@@ -11,8 +11,8 @@ class SeparationConfig:
     model_name: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
     model_type: Literal["bs_roformer", "mel_band_roformer", "htdemucs"] = "bs_roformer"
 
-    chunk_duration: int = 30
-    overlap: int = 5
+    chunk_duration: int = 60
+    overlap: int = 2
 
     sample_rate: int = 44100
     output_format: Literal["wav", "flac", "mp3"] = "wav"

@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from sqlalchemy import Column, String, Integer, Float, DateTime, Enum, Text, JSON
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 
 class JobStatus(str, PyEnum):
@@ -27,11 +31,12 @@ class Job(Base):
     stage = Column(Enum(ProcessingStage), nullable=True)
     progress = Column(Integer, default=0, nullable=False)
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    
+
     error_message = Column(Text, nullable=True)
+    message = Column(Text, nullable=True)
     
     input_filename = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)

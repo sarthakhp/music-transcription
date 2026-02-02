@@ -67,7 +67,7 @@ class PipelineWorker:
     
     def _run_separation(self, input_audio_path: Path) -> dict:
         logger.info(f"Stage 1: Source Separation for job {self.job_id}")
-        self.progress_tracker.start_separation()
+        self.progress_tracker.start_separation("Initializing source separation")
 
         config = SeparationConfig(
             output_dir=self.separated_dir,
@@ -75,8 +75,12 @@ class PipelineWorker:
         )
         separator = AppleSiliconSeparator(config)
 
-        stems = separator.separate(input_audio_path)
+        def separation_progress_callback(progress: int, message: str):
+            self.progress_tracker.update_separation(progress, message)
 
+        stems = separator.separate(input_audio_path, progress_callback=separation_progress_callback)
+
+        self.progress_tracker.update_separation(70, "Saving separated stems as MP3 files")
         base_filename = f"{self.job_id}_{input_audio_path.stem}"
         stem_paths = save_stems_as_mp3(
             stems=stems,
@@ -87,6 +91,7 @@ class PipelineWorker:
             verbose=False
         )
 
+        self.progress_tracker.update_separation(90, "Copying original audio file")
         original_path = copy_original_audio(
             input_audio_path=input_audio_path,
             output_dir=self.separated_dir,
@@ -108,14 +113,14 @@ class PipelineWorker:
             stem_paths=stem_paths_dict
         )
 
-        self.progress_tracker.complete_separation()
+        self.progress_tracker.complete_separation(f"Separated into {len(stem_paths)} stems successfully")
         logger.info(f"Separation complete: {len(stem_paths)} stems saved")
 
         return stem_paths
     
     def _run_transcription(self, vocals_path: Path, original_audio_path: Path) -> dict:
         logger.info(f"Stage 2: Vocal Transcription for job {self.job_id}")
-        self.progress_tracker.start_transcription()
+        self.progress_tracker.start_transcription("Loading vocal track and initializing transcription model")
 
         config = TranscriptionConfig(
             hop_size_ms=10,
@@ -124,12 +129,14 @@ class PipelineWorker:
         )
         transcriber = VocalTranscriber(config)
 
+        self.progress_tracker.update_transcription(20, "Analyzing pitch and extracting vocal melody")
         result = transcriber.transcribe(
             audio_path=vocals_path,
             original_audio_path=original_audio_path,
             output_dir=self.transcription_dir
         )
 
+        self.progress_tracker.update_transcription(80, "Exporting processed frames and metadata")
         frames_output_path = self.transcription_dir / f"{self.job_id}_processed_frames.json"
         export_processed_frames(
             processed_frames=result.pitch_contour,
@@ -153,7 +160,7 @@ class PipelineWorker:
             frames_json_path=str(frames_output_path)
         )
 
-        self.progress_tracker.complete_transcription()
+        self.progress_tracker.complete_transcription(f"Transcribed {len(result.pitch_contour)} frames at {result.tempo_bpm:.1f} BPM")
         logger.info(f"Transcription complete: {len(result.pitch_contour)} frames")
 
         return {
@@ -164,7 +171,7 @@ class PipelineWorker:
     
     def _run_chord_detection(self, bass_path: Path, other_path: Path, instrumental_path: Path, tempo_bpm: float) -> dict:
         logger.info(f"Stage 3: Chord Detection for job {self.job_id}")
-        self.progress_tracker.start_chords()
+        self.progress_tracker.start_chords("Loading BTC chord detection model")
 
         config = ChordDetectionConfig(
             model_path=str(settings.chord_model_path),
@@ -175,15 +182,18 @@ class PipelineWorker:
         detector = ChordDetector(config)
 
         logger.info(f"Loading BTC model from: {settings.chord_model_path}")
+        self.progress_tracker.update_chords(15, "Model loaded, analyzing harmonic content")
         detector.load_model()
 
+        self.progress_tracker.update_chords(30, "Detecting chord progressions from stems")
         progression = detector.detect_from_stems(
             bass_path=bass_path,
             other_path=other_path,
             instrumental_path=instrumental_path,
             tempo_bpm=tempo_bpm
         )
-        
+
+        self.progress_tracker.update_chords(85, "Saving chord progression data")
         chords_output_path = self.chords_dir / f"{self.job_id}_chords.json"
         detector.save_json(progression, chords_output_path)
 
@@ -199,9 +209,9 @@ class PipelineWorker:
             chords_json_path=str(chords_output_path)
         )
 
-        self.progress_tracker.complete_chords()
+        self.progress_tracker.complete_chords(f"Detected {len(progression.chords)} chords successfully")
         logger.info(f"Chord detection complete: {len(progression.chords)} chords")
-        
+
         return {
             "num_chords": len(progression.chords),
             "duration": progression.duration

@@ -1,8 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
 from api.database.models import JobStatus, ProcessingStage
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 
 class JobCreate(BaseModel):
@@ -14,12 +18,13 @@ class JobResponse(BaseModel):
     status: JobStatus
     stage: Optional[ProcessingStage] = None
     progress: int
-    
+
     created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     error_message: Optional[str] = None
+    message: Optional[str] = None
     
     input_filename: str
     file_size: int
@@ -46,7 +51,8 @@ class JobStatusResponse(BaseModel):
     stage: Optional[ProcessingStage] = None
     progress: int
     error_message: Optional[str] = None
-    
+    message: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -102,7 +108,7 @@ class HealthResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     error_code: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
 
 
 class ProcessedFrame(BaseModel):

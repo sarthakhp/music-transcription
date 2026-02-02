@@ -1,10 +1,14 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
 from api.database.models import Job, JobStatus, ProcessingStage
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 from api.utils.exceptions import JobNotFoundException, TooManyJobsException
 from api.utils.logging import get_logger
 from api.config import settings
@@ -31,7 +35,7 @@ class JobManager:
             file_size=file_size,
             status=JobStatus.QUEUED,
             progress=0,
-            created_at=datetime.utcnow()
+            created_at=utc_now()
         )
         
         db.add(job)
@@ -74,12 +78,12 @@ class JobManager:
     ) -> Job:
         job = JobManager.get_job(db, job_id)
         job.status = status
-        
+
         if status == JobStatus.PROCESSING and not job.started_at:
-            job.started_at = datetime.utcnow()
-        
+            job.started_at = utc_now()
+
         if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             job.progress = 100 if status == JobStatus.COMPLETED else job.progress
         
         if error_message:
@@ -96,15 +100,19 @@ class JobManager:
         db: Session,
         job_id: str,
         stage: ProcessingStage,
-        progress: int
+        progress: int,
+        message: Optional[str] = None
     ) -> Job:
         job = JobManager.get_job(db, job_id)
         job.stage = stage
         job.progress = progress
-        
+
+        if message is not None:
+            job.message = message
+
         db.commit()
         db.refresh(job)
-        
+
         logger.debug(f"Job {job_id} stage: {stage}, progress: {progress}%")
         return job
     
@@ -186,7 +194,7 @@ class JobManager:
         if days is None:
             days = settings.job_retention_days
         
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
         
         old_jobs = db.query(Job).filter(
             and_(

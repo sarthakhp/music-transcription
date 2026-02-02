@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
     
     cors_origins: str = Field(
-        default="http://localhost:3000,http://localhost:8080",
+        default="http://localhost:3000,http://localhost:8080,https://sarthakhp.github.io",
         description="Comma-separated list of allowed CORS origins"
     )
     
