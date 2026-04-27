@@ -1,12 +1,27 @@
-from sqlalchemy import create_engine
+import logging
+import sqlite3
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from api.config import settings
+
+logger = logging.getLogger(__name__)
 
 engine = create_engine(
     settings.database_url,
     connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {},
     echo=False,
 )
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_wal_mode(dbapi_connection, connection_record):
+    """Enable WAL mode for SQLite so multiple processes can read/write concurrently."""
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -22,4 +37,10 @@ def get_db() -> Session:
 def init_db():
     from api.database.models import Base
     Base.metadata.create_all(bind=engine)
+
+
+def close_db():
+    """Dispose the engine connection pool. Call on shutdown."""
+    engine.dispose()
+    logger.info("Database engine disposed")
 

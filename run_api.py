@@ -8,6 +8,6 @@ if __name__ == "__main__":
         host=settings.api_host,
         port=settings.api_port,
         reload=True,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
+        timeout_graceful_shutdown=30,
     )
-

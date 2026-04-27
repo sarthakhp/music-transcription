@@ -14,9 +14,11 @@ class ProgressTracker:
         self.db = db
         self.job_id = job_id
         self._stage_weights = {
-            ProcessingStage.SEPARATION: (0, 33),
-            ProcessingStage.TRANSCRIPTION: (33, 66),
-            ProcessingStage.CHORDS: (66, 100)
+            ProcessingStage.DOWNLOAD: (0, 15),
+            ProcessingStage.SEPARATION: (15, 45),
+            ProcessingStage.TRANSCRIPTION: (45, 65),
+            ProcessingStage.INSTRUMENTS: (65, 80),
+            ProcessingStage.CHORDS: (80, 100),
         }
     
     def update_stage(self, stage: ProcessingStage, stage_progress: int = 0, message: Optional[str] = None):
@@ -34,6 +36,16 @@ class ProgressTracker:
 
         logger.info(f"Job {self.job_id}: {stage.value} - {stage_progress}% (overall: {overall_progress}%)")
     
+    def start_download(self, message: str = "Starting audio download"):
+        JobManager.update_job_status(self.db, self.job_id, JobStatus.PROCESSING)
+        self.update_stage(ProcessingStage.DOWNLOAD, 0, message)
+
+    def update_download(self, progress: int, message: Optional[str] = None):
+        self.update_stage(ProcessingStage.DOWNLOAD, progress, message)
+
+    def complete_download(self, message: str = "Audio download complete"):
+        self.update_stage(ProcessingStage.DOWNLOAD, 100, message)
+
     def start_separation(self, message: str = "Starting source separation"):
         JobManager.update_job_status(self.db, self.job_id, JobStatus.PROCESSING)
         self.update_stage(ProcessingStage.SEPARATION, 0, message)
@@ -52,6 +64,15 @@ class ProgressTracker:
 
     def complete_transcription(self, message: str = "Vocal transcription completed"):
         self.update_stage(ProcessingStage.TRANSCRIPTION, 100, message)
+
+    def start_instruments(self, message: str = "Starting instrument transcription"):
+        self.update_stage(ProcessingStage.INSTRUMENTS, 0, message)
+
+    def update_instruments(self, progress: int, message: Optional[str] = None):
+        self.update_stage(ProcessingStage.INSTRUMENTS, progress, message)
+
+    def complete_instruments(self, message: str = "Instrument transcription completed"):
+        self.update_stage(ProcessingStage.INSTRUMENTS, 100, message)
 
     def start_chords(self, message: str = "Starting chord detection"):
         self.update_stage(ProcessingStage.CHORDS, 0, message)

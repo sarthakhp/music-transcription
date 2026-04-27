@@ -74,6 +74,7 @@ class JobResultsResponse(BaseModel):
     
     stems: Optional[List[str]] = None
     frames_available: bool = False
+    instruments_available: bool = False
     chords_available: bool = False
     
     num_frames: Optional[int] = None
@@ -145,6 +146,46 @@ class ChordsResponse(BaseModel):
     tempo_bpm: Optional[float] = None
     key_info: Optional[dict] = None
     num_chords: int
+
+
+class URLMetadataResponse(BaseModel):
+    title: str
+    duration: float          # total duration in seconds
+    uploader: str
+    thumbnail: Optional[str] = None
+    url: str
+    max_duration_seconds: int  # so the UI knows the limit
+
+
+class InstrumentNote(BaseModel):
+    onset: float
+    offset: float
+    duration: float
+    pitch: int
+    velocity: int
+    confidence: float = 0.0
+    pitch_bends: List[float] = []
+
+
+class InstrumentTrackResponse(BaseModel):
+    instrument: str
+    num_notes: int
+    duration: float
+    notes: List[InstrumentNote]
+
+
+class InstrumentsResponse(BaseModel):
+    job_id: str
+    tracks: dict[str, InstrumentTrackResponse]
+    duration: float
+    total_notes: int
+    tempo_bpm: Optional[float] = None
+
+
+class CancelJobResponse(BaseModel):
+    job_id: str
+    message: str = "Job cancelled successfully"
+    cancelled: bool = True
 
 
 class DeleteJobResponse(BaseModel):

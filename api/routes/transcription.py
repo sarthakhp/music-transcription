@@ -65,15 +65,51 @@ async def save_upload_file(upload_file: UploadFile, destination: Path) -> int:
     return file_size
 
 
-def run_pipeline_task(job_id: str, input_audio_path: Path):
+def run_pipeline_task(
+    job_id: str,
+    input_audio_path: Path | None,
+    trace_id: str | None = None,
+    source_url: str | None = None,
+    start_time: float | None = None,
+    end_time: float | None = None,
+):
+    """Entry point for the pipeline subprocess (spawned by TaskQueue).
+
+    Runs in a completely separate OS process. Must set up its own:
+    - Logging (subprocess has no handlers by default)
+    - Trace ID (ContextVars don't cross process boundaries)
+    - DB session
+    - Separation model (spawn doesn't inherit parent memory)
+
+    For URL jobs: input_audio_path is None and source_url is set.
+    The pipeline worker downloads the audio as Stage 0.
+    """
+    from api.utils.logging import setup_logging
+    setup_logging()
+
+    if trace_id:
+        from api.middleware.context import set_trace_id
+        set_trace_id(trace_id)
+
+    from src.source_separation import AppleSiliconSeparator, SeparationConfig
+    AppleSiliconSeparator.preload(SeparationConfig())
+
     from api.database.session import SessionLocal
-    
+    from src.source_separation.memory import clear_memory
+
     db = SessionLocal()
     try:
         worker = PipelineWorker(db, job_id)
-        worker.run(input_audio_path)
+        worker.run(
+            input_audio_path=input_audio_path,
+            source_url=source_url,
+            start_time=start_time,
+            end_time=end_time,
+        )
     finally:
         db.close()
+        clear_memory("mps")
+        clear_memory("cpu")
 
 
 @router.post("/transcribe", response_model=TranscribeResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -109,11 +145,13 @@ async def transcribe_audio(
 
         logger.info(f"File saved: {input_file_path} ({file_size} bytes)")
 
+        from api.middleware.context import get_trace_id
         await task_queue.submit_job(
             job.id,
             run_pipeline_task,
             job.id,
-            input_file_path
+            input_file_path,
+            trace_id=get_trace_id(),
         )
         
         logger.info(f"Job {job.id} submitted to task queue")

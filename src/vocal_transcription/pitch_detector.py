@@ -6,6 +6,7 @@ import torch
 import torchaudio
 import torchcrepe
 
+from src.audio_io import load_audio
 from .config import TranscriptionConfig
 from .constants import SAMPLE_RATE, A4_FREQUENCY, A4_MIDI
 from .models import PitchFrame
@@ -30,7 +31,7 @@ class PitchDetector:
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        audio, sr = torchaudio.load(str(audio_path))
+        audio, sr = load_audio(audio_path)
 
         if audio.shape[0] > 1:
             audio = audio.mean(dim=0, keepdim=True)

@@ -15,11 +15,14 @@ class JobStatus(str, PyEnum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ProcessingStage(str, PyEnum):
+    DOWNLOAD = "download"
     SEPARATION = "separation"
     TRANSCRIPTION = "transcription"
+    INSTRUMENTS = "instruments"
     CHORDS = "chords"
 
 
@@ -38,6 +41,10 @@ class Job(Base):
     error_message = Column(Text, nullable=True)
     message = Column(Text, nullable=True)
     
+    source_type = Column(String(16), nullable=False, default="file")  # "file" | "url"
+    source_url = Column(Text, nullable=True)
+    video_title = Column(String(512), nullable=True)
+
     input_filename = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)
 
@@ -50,6 +57,7 @@ class Job(Base):
     original_mp3_path = Column(Text, nullable=True)
     stem_paths = Column(JSON, nullable=True)
     frames_json_path = Column(Text, nullable=True)
+    instruments_json_path = Column(Text, nullable=True)
     chords_json_path = Column(Text, nullable=True)
     
     def __repr__(self):

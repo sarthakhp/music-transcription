@@ -2,8 +2,8 @@ import logging
 from pathlib import Path
 
 import torch
-import torchaudio
 
+from src.audio_io import load_audio
 from .config import TranscriptionConfig
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ class AudioTrimmer:
     
     def load_and_trim(self, audio_path: str | Path) -> tuple[torch.Tensor, int, float]:
         audio_path = Path(audio_path)
-        audio, sr = torchaudio.load(str(audio_path))
+        audio, sr = load_audio(audio_path)
         
         if self.config.should_crop:
             audio = self._trim_audio(audio, sr)

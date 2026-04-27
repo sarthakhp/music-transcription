@@ -2,7 +2,7 @@ import json
 import shutil
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
@@ -15,13 +15,18 @@ from api.models.schemas import (
     JobResultsResponse,
     StemInfo,
     StemsListResponse,
+    CancelJobResponse,
     DeleteJobResponse,
     FramesResponse,
+    InstrumentsResponse,
+    InstrumentTrackResponse,
+    InstrumentNote,
     ChordsResponse,
     ProcessedFrame,
     Chord
 )
 from api.services.job_manager import JobManager
+from api.workers.task_queue import task_queue
 from api.utils.exceptions import JobNotFoundException
 from api.utils.logging import get_logger
 from api.config import settings
@@ -84,7 +89,10 @@ async def get_job_results(
         for stem_file in separated_dir.glob("*.mp3"):
             stems.append(stem_file.stem.split("_")[-1])
 
+    instruments_dir = job_storage_path / "instruments"
+
     frames_available = (transcription_dir / f"{job_id}_processed_frames.json").exists()
+    instruments_available = (instruments_dir / f"{job_id}_instruments.json").exists()
     chords_available = (chords_dir / f"{job_id}_chords.json").exists()
 
     return JobResultsResponse(
@@ -96,6 +104,7 @@ async def get_job_results(
         tempo_bpm=job.tempo_bpm,
         stems=stems if stems else None,
         frames_available=frames_available,
+        instruments_available=instruments_available,
         chords_available=chords_available,
         num_frames=job.num_frames,
         num_chords=job.num_chords,
@@ -178,6 +187,41 @@ async def get_processed_frames(
     )
 
 
+@router.get("/{job_id}/instruments", response_model=InstrumentsResponse)
+async def get_instruments(
+    job_id: str,
+    db: Session = Depends(get_db)
+):
+    job = JobManager.get_job(db, job_id)
+    job_storage_path = settings.get_job_storage_path(job_id)
+    instruments_file = job_storage_path / "instruments" / f"{job_id}_instruments.json"
+
+    if not instruments_file.exists():
+        raise JobNotFoundException(f"Instrument transcription not found for job {job_id}")
+
+    with open(instruments_file, "r") as f:
+        data = json.load(f)
+
+    tracks = {}
+    for instrument, track_data in data.get("tracks", {}).items():
+        notes = [InstrumentNote(**note) for note in track_data.get("notes", [])]
+        tracks[instrument] = InstrumentTrackResponse(
+            instrument=instrument,
+            num_notes=track_data.get("num_notes", len(notes)),
+            duration=track_data.get("duration", 0.0),
+            notes=notes,
+        )
+
+    metadata = data.get("metadata", {})
+    return InstrumentsResponse(
+        job_id=job_id,
+        tracks=tracks,
+        duration=metadata.get("duration", 0.0),
+        total_notes=metadata.get("total_notes", 0),
+        tempo_bpm=metadata.get("tempo_bpm"),
+    )
+
+
 @router.get("/{job_id}/chords", response_model=ChordsResponse)
 async def get_chords(
     job_id: str,
@@ -203,6 +247,45 @@ async def get_chords(
         tempo_bpm=data.get("tempo_bpm"),
         key_info=data.get("key_info"),
         num_chords=len(chords)
+    )
+
+
+@router.post("/{job_id}/cancel", response_model=CancelJobResponse)
+async def cancel_job(
+    job_id: str,
+    db: Session = Depends(get_db)
+):
+    job = JobManager.get_job(db, job_id)
+
+    if job.status not in [JobStatus.QUEUED, JobStatus.PROCESSING]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} cannot be cancelled (current status: {job.status.value})"
+        )
+
+    job_storage_path = settings.get_job_storage_path(job_id)
+    cancelled = task_queue.cancel_job(job_id, job_storage_path)
+
+    if not cancelled:
+        # Job finished naturally in the window between our status check and
+        # the kill — refresh the DB record and report what actually happened.
+        db.refresh(job)
+        logger.info(
+            f"Job {job_id} could not be cancelled — it finished with status {job.status.value}"
+        )
+        return CancelJobResponse(
+            job_id=job_id,
+            message=f"Job already finished with status: {job.status.value}",
+            cancelled=False,
+        )
+
+    JobManager.update_job_status(db, job_id, JobStatus.CANCELLED)
+    logger.info(f"Job {job_id} cancelled and storage cleaned up")
+
+    return CancelJobResponse(
+        job_id=job_id,
+        message="Job cancelled and storage cleaned up",
+        cancelled=True,
     )
 
 

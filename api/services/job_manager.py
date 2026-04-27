@@ -22,26 +22,32 @@ class JobManager:
     def create_job(
         db: Session,
         input_filename: str,
-        file_size: int
+        file_size: int,
+        source_type: str = "file",
+        source_url: Optional[str] = None,
+        video_title: Optional[str] = None,
     ) -> Job:
         active_jobs = JobManager.count_active_jobs(db)
         if active_jobs >= settings.max_concurrent_jobs:
             raise TooManyJobsException(settings.max_concurrent_jobs)
-        
+
         job_id = str(uuid.uuid4())
         job = Job(
             id=job_id,
             input_filename=input_filename,
             file_size=file_size,
+            source_type=source_type,
+            source_url=source_url,
+            video_title=video_title,
             status=JobStatus.QUEUED,
             progress=0,
             created_at=utc_now()
         )
-        
+
         db.add(job)
         db.commit()
         db.refresh(job)
-        
+
         logger.info(f"Created job {job_id} for file {input_filename}")
         return job
     
@@ -150,6 +156,7 @@ class JobManager:
         original_mp3_path: Optional[str] = None,
         stem_paths: Optional[dict] = None,
         frames_json_path: Optional[str] = None,
+        instruments_json_path: Optional[str] = None,
         chords_json_path: Optional[str] = None
     ) -> Job:
         job = JobManager.get_job(db, job_id)
@@ -162,6 +169,8 @@ class JobManager:
             job.stem_paths = {k: str(v) for k, v in stem_paths.items()}
         if frames_json_path is not None:
             job.frames_json_path = str(frames_json_path)
+        if instruments_json_path is not None:
+            job.instruments_json_path = str(instruments_json_path)
         if chords_json_path is not None:
             job.chords_json_path = str(chords_json_path)
 

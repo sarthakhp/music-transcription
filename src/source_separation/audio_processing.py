@@ -1,10 +1,13 @@
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 import torch
 import torchaudio
 import numpy as np
 
+from src.audio_io import load_audio
 from .config import SeparationConfig
 from .constants import KNOWN_STEMS
 
@@ -25,7 +28,13 @@ def process_chunk(
     separator,
     config: SeparationConfig,
 ) -> dict[str, np.ndarray]:
-    temp_path = config.output_dir / "_temp_chunk.wav"
+    temp_fd, temp_path_str = tempfile.mkstemp(
+        suffix=".wav", prefix="chunk_", dir=str(config.output_dir)
+    )
+    # mkstemp opens an fd; close it so torchaudio can write to the path
+    os.close(temp_fd)
+    temp_path = Path(temp_path_str)
+
     torchaudio.save(str(temp_path), chunk, sr)
     input_samples = chunk.shape[1]
 
@@ -35,12 +44,22 @@ def process_chunk(
         stems = {}
         for output_file in output_files:
             output_path = config.output_dir / Path(output_file).name
+            if not output_path.exists():
+                logger.error(
+                    f"Expected separated stem not found at {output_path}. "
+                    f"separator.separate() returned {output_files!r}, "
+                    f"config.output_dir={config.output_dir}"
+                )
+                raise FileNotFoundError(
+                    f"Separated stem not found: {output_path}. "
+                    f"audio_separator may have written to a different directory."
+                )
             stem_name = extract_stem_name(output_path.stem)
             if stem_name in config.stems:
-                audio, output_sr = torchaudio.load(str(output_path))
+                audio, output_sr = load_audio(output_path)
                 output_samples = audio.shape[1]
 
-                logger.debug(
+                logger.info(
                     f"Chunk {stem_name}: input={input_samples} samples ({input_samples/sr:.2f}s @ {sr}Hz), "
                     f"output={output_samples} samples ({output_samples/output_sr:.2f}s @ {output_sr}Hz), "
                     f"diff={output_samples - input_samples} samples ({(output_samples - input_samples)/sr*1000:.1f}ms)"

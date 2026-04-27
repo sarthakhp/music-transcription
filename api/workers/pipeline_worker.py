@@ -2,13 +2,19 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from src.source_separation import (
-    SeparationConfig,
     AppleSiliconSeparator,
     save_stems_as_mp3,
     copy_original_audio,
 )
 from src.vocal_transcription import VocalTranscriber, TranscriptionConfig
 from src.vocal_transcription.frame_exporter import export_processed_frames
+from src.instrument_transcription import (
+    InstrumentTranscriptionConfig,
+    InstrumentTranscriptionResult,
+    BassTranscriber,
+    MelodicTranscriber,
+)
+from src.instrument_transcription.exporter import export_instrument_transcription
 from src.chord_detection import ChordDetector, ChordDetectionConfig
 
 from api.database.models import ProcessingStage
@@ -31,25 +37,48 @@ class PipelineWorker:
         self.input_dir = self.job_storage_path / "input"
         self.separated_dir = self.job_storage_path / "separated"
         self.transcription_dir = self.job_storage_path / "transcription"
+        self.instruments_dir = self.job_storage_path / "instruments"
         self.chords_dir = self.job_storage_path / "chords"
-        
+
         self._create_directories()
-    
+
     def _create_directories(self):
-        for directory in [self.input_dir, self.separated_dir, self.transcription_dir, self.chords_dir]:
+        for directory in [self.input_dir, self.separated_dir, self.transcription_dir, self.instruments_dir, self.chords_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
-    def run(self, input_audio_path: Path):
+    def run(
+        self,
+        input_audio_path: Path | None = None,
+        source_url: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ):
         try:
             logger.info(f"Starting pipeline for job {self.job_id}")
-            
+
+            # Stage 0: Download (URL jobs only)
+            if source_url:
+                input_audio_path = self._run_download(source_url, start_time, end_time)
+
             stems = self._run_separation(input_audio_path)
             
             transcription_result = self._run_transcription(
                 stems.get("vocals"),
                 input_audio_path
             )
-            
+
+            # For 2-stem models (vocals + instrumental), the instrumental
+            # stem contains everything non-vocal. Use it as the "other" stem
+            # fallback for instrument transcription.
+            bass_stem = stems.get("bass")
+            other_stem = stems.get("other") or stems.get("instrumental")
+
+            instrument_result = self._run_instrument_transcription(
+                bass_stem,
+                other_stem,
+                transcription_result.get("tempo_bpm"),
+            )
+
             chord_progression = self._run_chord_detection(
                 stems.get("bass"),
                 stems.get("other"),
@@ -65,20 +94,74 @@ class PipelineWorker:
             self.progress_tracker.fail_job(str(e))
             raise
     
+    def _run_download(
+        self,
+        source_url: str,
+        start_time: float | None,
+        end_time: float | None,
+    ) -> Path:
+        logger.info(f"Stage 0: Download for job {self.job_id} — {source_url}")
+        self.progress_tracker.start_download("Connecting to download source")
+
+        from api.services.youtube_downloader import download_audio, UnsupportedURLError
+
+        def download_progress(progress: int, message: str):
+            from api.database.session import SessionLocal
+            db = SessionLocal()
+            try:
+                ProgressTracker(db, self.job_id).update_download(progress, message)
+            finally:
+                db.close()
+
+        try:
+            audio_path = download_audio(
+                url=source_url,
+                output_dir=self.input_dir,
+                progress_callback=download_progress,
+                start_time=start_time,
+                end_time=end_time,
+            )
+        except UnsupportedURLError as e:
+            raise RuntimeError(f"Download failed: {e}") from e
+
+        # Update file size now that we know it
+        file_size = audio_path.stat().st_size
+        JobManager.update_file_paths(
+            self.db, self.job_id, input_file_path=str(audio_path)
+        )
+        job = JobManager.get_job(self.db, self.job_id)
+        job.file_size = file_size
+        self.db.commit()
+
+        self.progress_tracker.complete_download(
+            f"Downloaded: {audio_path.name} ({file_size // 1024}KB)"
+        )
+        logger.info(f"Download complete: {audio_path}")
+        return audio_path
+
     def _run_separation(self, input_audio_path: Path) -> dict:
         logger.info(f"Stage 1: Source Separation for job {self.job_id}")
         self.progress_tracker.start_separation("Initializing source separation")
 
-        config = SeparationConfig(
-            output_dir=self.separated_dir,
-            device="auto"
-        )
-        separator = AppleSiliconSeparator(config)
+        separator = AppleSiliconSeparator.get_instance()
 
         def separation_progress_callback(progress: int, message: str):
-            self.progress_tracker.update_separation(progress, message)
+            # This may be called from the progress estimator's background
+            # thread, so use a fresh DB session to avoid SQLite thread-safety
+            # issues with the worker's session.
+            from api.database.session import SessionLocal
+            db = SessionLocal()
+            try:
+                tracker = ProgressTracker(db, self.job_id)
+                tracker.update_separation(progress, message)
+            finally:
+                db.close()
 
-        stems = separator.separate(input_audio_path, progress_callback=separation_progress_callback)
+        stems = separator.separate(
+            input_audio_path,
+            progress_callback=separation_progress_callback,
+            output_dir=self.separated_dir,
+        )
 
         self.progress_tracker.update_separation(70, "Saving separated stems as MP3 files")
         base_filename = f"{self.job_id}_{input_audio_path.stem}"
@@ -86,7 +169,7 @@ class PipelineWorker:
             stems=stems,
             output_dir=self.separated_dir,
             base_filename=base_filename,
-            sample_rate=config.sample_rate,
+            sample_rate=separator.config.sample_rate,
             bitrate="320k",
             verbose=False
         )
@@ -169,8 +252,59 @@ class PipelineWorker:
             "num_frames": len(result.pitch_contour)
         }
     
+    def _run_instrument_transcription(
+        self, bass_path: Path | None, other_path: Path | None, tempo_bpm: float | None
+    ) -> dict:
+        logger.info(f"Stage 3: Instrument Transcription for job {self.job_id}")
+        self.progress_tracker.start_instruments("Initializing instrument transcription")
+
+        config = InstrumentTranscriptionConfig()
+        result = InstrumentTranscriptionResult()
+
+        # Transcribe bass stem
+        if bass_path and Path(bass_path).exists():
+            self.progress_tracker.update_instruments(10, "Transcribing bass line")
+            bass_transcriber = BassTranscriber(config)
+            result.tracks["bass"] = bass_transcriber.transcribe(bass_path)
+        else:
+            logger.warning(f"Bass stem not found for job {self.job_id}, skipping bass transcription")
+
+        # Transcribe "other" stem (guitars, keys, synths)
+        if other_path and Path(other_path).exists():
+            self.progress_tracker.update_instruments(50, "Transcribing melodic instruments")
+            melodic_transcriber = MelodicTranscriber(config)
+            result.tracks["other"] = melodic_transcriber.transcribe(other_path)
+        else:
+            logger.warning(f"Other stem not found for job {self.job_id}, skipping melodic transcription")
+
+        result.duration = max(
+            (track.duration for track in result.tracks.values()), default=0.0
+        )
+
+        # Export results
+        self.progress_tracker.update_instruments(85, "Saving instrument transcription data")
+        instruments_output_path = self.instruments_dir / f"{self.job_id}_instruments.json"
+        export_instrument_transcription(result, instruments_output_path, tempo_bpm=tempo_bpm)
+
+        JobManager.update_file_paths(
+            self.db,
+            self.job_id,
+            instruments_json_path=str(instruments_output_path),
+        )
+
+        self.progress_tracker.complete_instruments(
+            f"Transcribed {result.total_notes} notes across {len(result.tracks)} instrument(s)"
+        )
+        logger.info(f"Instrument transcription complete: {result.total_notes} notes")
+
+        return {
+            "total_notes": result.total_notes,
+            "tracks": list(result.tracks.keys()),
+            "duration": result.duration,
+        }
+
     def _run_chord_detection(self, bass_path: Path, other_path: Path, instrumental_path: Path, tempo_bpm: float) -> dict:
-        logger.info(f"Stage 3: Chord Detection for job {self.job_id}")
+        logger.info(f"Stage 4: Chord Detection for job {self.job_id}")
         self.progress_tracker.start_chords("Loading BTC chord detection model")
 
         config = ChordDetectionConfig(
