@@ -84,3 +84,5 @@ api.db
 
 # OS Specific
 .DS_Store
+
+.serena
