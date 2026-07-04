@@ -26,6 +26,7 @@ class JobManager:
         source_type: str = "file",
         source_url: Optional[str] = None,
         video_title: Optional[str] = None,
+        separation_model: Optional[str] = None,
     ) -> Job:
         active_jobs = JobManager.count_active_jobs(db)
         if active_jobs >= settings.max_concurrent_jobs:
@@ -39,6 +40,7 @@ class JobManager:
             source_type=source_type,
             source_url=source_url,
             video_title=video_title,
+            separation_model=separation_model,
             status=JobStatus.QUEUED,
             progress=0,
             created_at=utc_now()
@@ -48,7 +50,7 @@ class JobManager:
         db.commit()
         db.refresh(job)
 
-        logger.info(f"Created job {job_id} for file {input_filename}")
+        logger.info(f"Created job {job_id} for file {input_filename} (model={separation_model})")
         return job
     
     @staticmethod
@@ -101,6 +103,26 @@ class JobManager:
         logger.info(f"Job {job_id} status updated to {status}")
         return job
     
+    @staticmethod
+    def reset_job_for_retry(db: Session, job_id: str) -> Job:
+        """Reset a terminal (failed/cancelled) job back to QUEUED so it can be
+        reprocessed. Clears stage/progress/error/timing but keeps source info
+        and any already-downloaded input on disk."""
+        job = JobManager.get_job(db, job_id)
+        job.status = JobStatus.QUEUED
+        job.stage = None
+        job.progress = 0
+        job.error_message = None
+        job.message = None
+        job.started_at = None
+        job.completed_at = None
+
+        db.commit()
+        db.refresh(job)
+
+        logger.info(f"Job {job_id} reset for retry")
+        return job
+
     @staticmethod
     def update_job_stage(
         db: Session,

@@ -44,6 +44,7 @@ class Job(Base):
     source_type = Column(String(16), nullable=False, default="file")  # "file" | "url"
     source_url = Column(Text, nullable=True)
     video_title = Column(String(512), nullable=True)
+    separation_model = Column(String(64), nullable=True)
 
     input_filename = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)

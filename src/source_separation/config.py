@@ -3,13 +3,12 @@ from pathlib import Path
 from typing import Literal
 import os
 
-from .constants import KNOWN_STEMS
+from .model_registry import DEFAULT_MODEL_KEY, get_model
 
 
 @dataclass
 class SeparationConfig:
-    model_name: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
-    model_type: Literal["bs_roformer", "mel_band_roformer", "htdemucs"] = "bs_roformer"
+    model_key: str = DEFAULT_MODEL_KEY
 
     chunk_duration: int = 60
     overlap: int = 2
@@ -25,20 +24,32 @@ class SeparationConfig:
     enable_mps_fallback: bool = True
     clear_cache_between_chunks: bool = True
 
-    stems: list[str] = field(default_factory=lambda: KNOWN_STEMS.copy())
-
     def __post_init__(self):
         if isinstance(self.output_dir, str):
             self.output_dir = Path(self.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         if self.enable_mps_fallback:
             os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+        self._model = get_model(self.model_key)
+
+    @property
+    def model_filename(self) -> str:
+        return self._model.model_filename
+
+    @property
+    def stems(self) -> list[str]:
+        return self._model.stems
+
+    @property
+    def estimated_realtime_factor(self) -> float:
+        return self._model.estimated_realtime_factor
 
     def get_device(self) -> str:
         if self.device != "auto":
             return self.device
-        
+
         import torch
         if torch.backends.mps.is_available():
             return "mps"

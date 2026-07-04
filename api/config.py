@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
     
     cors_origins: str = Field(
-        default="http://localhost:3000,http://localhost:8080,https://sarthakhp.github.io",
+        default="http://localhost:3000,http://localhost:8080,https://sarthakhp.github.io,http://localhost:60151,http://localhost:58877",
         description="Comma-separated list of allowed CORS origins"
     )
     
@@ -44,7 +44,27 @@ class Settings(BaseSettings):
         default=Path("models/chord_detection/btc_model.pt"),
         description="Path to chord detection model"
     )
-    
+
+    # --- Remote publishing (Firebase Storage) ---
+    # When both are set, completed jobs are published to Firebase Storage so the
+    # hosted viewer can read them from anywhere. Left unset for local-only use.
+    firebase_credentials_path: Path | None = Field(
+        default=None,
+        description="Path to the Firebase service account JSON key file",
+    )
+    firebase_storage_bucket: str | None = Field(
+        default=None,
+        description="Firebase Storage bucket name, e.g. my-project.appspot.com",
+    )
+    publish_on_complete: bool = Field(
+        default=True,
+        description="Auto-publish a job to remote storage once it completes",
+    )
+
+    @property
+    def publish_enabled(self) -> bool:
+        return bool(self.firebase_credentials_path and self.firebase_storage_bucket)
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]

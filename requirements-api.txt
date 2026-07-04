@@ -29,3 +29,6 @@ pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
 
 yt-dlp>=2025.1.0
+
+# Remote publishing (Firebase Storage) for the hosted viewer
+firebase-admin>=6.5.0

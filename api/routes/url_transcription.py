@@ -23,8 +23,9 @@ router = APIRouter(prefix="/api/v1", tags=["url-transcription"])
 
 class TranscribeURLRequest(BaseModel):
     url: str
-    start_time: float | None = None   # seconds, optional trim
-    end_time: float | None = None     # seconds, optional trim
+    start_time: float | None = None
+    end_time: float | None = None
+    separation_model: str | None = None
 
     @field_validator("url")
     @classmethod
@@ -78,6 +79,13 @@ async def transcribe_url(
 ):
     logger.info(f"Received URL transcription request: {request.url}")
 
+    from src.source_separation import DEFAULT_MODEL_KEY, get_model
+    model_key = request.separation_model or DEFAULT_MODEL_KEY
+    try:
+        get_model(model_key)
+    except KeyError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     if not task_queue.can_accept_job():
         raise TooManyJobsException(settings.max_concurrent_jobs)
 
@@ -119,10 +127,11 @@ async def transcribe_url(
     job = JobManager.create_job(
         db=db,
         input_filename=f"{safe_title}.mp3",
-        file_size=0,                          # unknown until download completes
+        file_size=0,
         source_type="url",
         source_url=request.url,
         video_title=metadata.title,
+        separation_model=model_key,
     )
 
     # Submit to pipeline subprocess — download happens as Stage 0
@@ -133,11 +142,12 @@ async def transcribe_url(
         job.id,
         run_pipeline_task,
         job.id,
-        None,                                 # input_audio_path: None for URL jobs
+        None,
         trace_id=get_trace_id(),
         source_url=request.url,
         start_time=request.start_time,
         end_time=request.end_time,
+        separation_model=model_key,
     )
 
     logger.info(f"URL job {job.id} submitted: {metadata.title!r}")

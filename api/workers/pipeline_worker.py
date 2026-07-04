@@ -2,7 +2,8 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from src.source_separation import (
-    AppleSiliconSeparator,
+    AudioSeparator,
+    SeparationConfig,
     save_stems_as_mp3,
     copy_original_audio,
 )
@@ -28,9 +29,10 @@ logger = get_logger("pipeline_worker")
 
 class PipelineWorker:
     
-    def __init__(self, db: Session, job_id: str):
+    def __init__(self, db: Session, job_id: str, separation_config: SeparationConfig | None = None):
         self.db = db
         self.job_id = job_id
+        self.separation_config = separation_config or SeparationConfig()
         self.progress_tracker = ProgressTracker(db, job_id)
         self.job_storage_path = settings.get_job_storage_path(job_id)
         
@@ -88,7 +90,12 @@ class PipelineWorker:
             
             self.progress_tracker.complete_job()
             logger.info(f"Pipeline completed successfully for job {self.job_id}")
-            
+
+            # Best-effort publish to remote storage so the hosted viewer can
+            # read this job from anywhere. Never fails the job.
+            from api.services.storage_publisher import try_publish_job
+            try_publish_job(self.db, self.job_id)
+
         except Exception as e:
             logger.error(f"Pipeline failed for job {self.job_id}: {str(e)}", exc_info=True)
             self.progress_tracker.fail_job(str(e))
@@ -140,27 +147,26 @@ class PipelineWorker:
         return audio_path
 
     def _run_separation(self, input_audio_path: Path) -> dict:
-        logger.info(f"Stage 1: Source Separation for job {self.job_id}")
+        logger.info(
+            f"Stage 1: Source Separation for job {self.job_id} "
+            f"(model={self.separation_config.model_key})"
+        )
         self.progress_tracker.start_separation("Initializing source separation")
 
-        separator = AppleSiliconSeparator.get_instance()
+        separator = AudioSeparator(self.separation_config)
 
         def separation_progress_callback(progress: int, message: str):
-            # This may be called from the progress estimator's background
-            # thread, so use a fresh DB session to avoid SQLite thread-safety
-            # issues with the worker's session.
             from api.database.session import SessionLocal
             db = SessionLocal()
             try:
-                tracker = ProgressTracker(db, self.job_id)
-                tracker.update_separation(progress, message)
+                ProgressTracker(db, self.job_id).update_separation(progress, message)
             finally:
                 db.close()
 
         stems = separator.separate(
             input_audio_path,
-            progress_callback=separation_progress_callback,
             output_dir=self.separated_dir,
+            progress_callback=separation_progress_callback,
         )
 
         self.progress_tracker.update_separation(70, "Saving separated stems as MP3 files")
@@ -169,7 +175,7 @@ class PipelineWorker:
             stems=stems,
             output_dir=self.separated_dir,
             base_filename=base_filename,
-            sample_rate=separator.config.sample_rate,
+            sample_rate=self.separation_config.sample_rate,
             bitrate="320k",
             verbose=False
         )

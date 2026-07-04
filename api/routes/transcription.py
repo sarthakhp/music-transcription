@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from api.database.session import get_db
@@ -72,6 +72,7 @@ def run_pipeline_task(
     source_url: str | None = None,
     start_time: float | None = None,
     end_time: float | None = None,
+    separation_model: str | None = None,
 ):
     """Entry point for the pipeline subprocess (spawned by TaskQueue).
 
@@ -79,7 +80,7 @@ def run_pipeline_task(
     - Logging (subprocess has no handlers by default)
     - Trace ID (ContextVars don't cross process boundaries)
     - DB session
-    - Separation model (spawn doesn't inherit parent memory)
+    - Separation model download (spawn doesn't inherit parent memory)
 
     For URL jobs: input_audio_path is None and source_url is set.
     The pipeline worker downloads the audio as Stage 0.
@@ -91,15 +92,17 @@ def run_pipeline_task(
         from api.middleware.context import set_trace_id
         set_trace_id(trace_id)
 
-    from src.source_separation import AppleSiliconSeparator, SeparationConfig
-    AppleSiliconSeparator.preload(SeparationConfig())
+    from src.source_separation import SeparationConfig, download_model_if_needed, DEFAULT_MODEL_KEY
+    model_key = separation_model or DEFAULT_MODEL_KEY
+    config = SeparationConfig(model_key=model_key)
+    download_model_if_needed(config)
 
     from api.database.session import SessionLocal
     from src.source_separation.memory import clear_memory
 
     db = SessionLocal()
     try:
-        worker = PipelineWorker(db, job_id)
+        worker = PipelineWorker(db, job_id, separation_config=config)
         worker.run(
             input_audio_path=input_audio_path,
             source_url=source_url,
@@ -115,7 +118,8 @@ def run_pipeline_task(
 @router.post("/transcribe", response_model=TranscribeResponse, status_code=status.HTTP_202_ACCEPTED)
 async def transcribe_audio(
     file: UploadFile = File(..., description="Audio file to transcribe"),
-    db: Session = Depends(get_db)
+    separation_model: str | None = Form(None, description="Separation model key"),
+    db: Session = Depends(get_db),
 ):
     logger.info(f"Received transcription request for file: {file.filename}")
     
@@ -124,10 +128,18 @@ async def transcribe_audio(
     if not task_queue.can_accept_job():
         raise TooManyJobsException(settings.max_concurrent_jobs)
     
+    from src.source_separation import DEFAULT_MODEL_KEY, get_model
+    model_key = separation_model or DEFAULT_MODEL_KEY
+    try:
+        get_model(model_key)
+    except KeyError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     job = JobManager.create_job(
         db=db,
         input_filename=file.filename,
-        file_size=0
+        file_size=0,
+        separation_model=model_key,
     )
     
     job_storage_path = settings.get_job_storage_path(job.id)
@@ -152,6 +164,7 @@ async def transcribe_audio(
             job.id,
             input_file_path,
             trace_id=get_trace_id(),
+            separation_model=model_key,
         )
         
         logger.info(f"Job {job.id} submitted to task queue")

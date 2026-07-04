@@ -8,7 +8,8 @@ from pathlib import Path
 
 from src.source_separation import (
     SeparationConfig,
-    AppleSiliconSeparator,
+    AudioSeparator,
+    download_model_if_needed,
     save_stems_as_mp3,
     copy_original_audio,
 )
@@ -55,14 +56,14 @@ def run_separation(audio_path: Path, output_dir: Path) -> dict[str, Path]:
         output_format="wav",
     )
     
-    separator = AppleSiliconSeparator(config)
+    download_model_if_needed(config)
+    separator = AudioSeparator(config)
     
     print("\nStarting source separation...")
-    stems = separator.separate(audio_path)
+    stems = separator.separate(audio_path, output_dir=output_dir)
 
     print(f"\nSeparation complete! Found {len(stems)} stems:")
 
-    # Save all stems as MP3 files
     stem_paths = save_stems_as_mp3(
         stems=stems,
         output_dir=output_dir,
@@ -72,7 +73,6 @@ def run_separation(audio_path: Path, output_dir: Path) -> dict[str, Path]:
         verbose=True,
     )
 
-    # Copy/convert original audio to output directory
     print("\nCopying original audio to output directory...")
     copy_original_audio(
         input_audio_path=audio_path,

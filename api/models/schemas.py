@@ -28,12 +28,17 @@ class JobResponse(BaseModel):
     
     input_filename: str
     file_size: int
-    
+    separation_model: Optional[str] = None
+
+    source_type: Optional[str] = None
+    source_url: Optional[str] = None
+    video_title: Optional[str] = None
+
     duration: Optional[float] = None
     tempo_bpm: Optional[float] = None
     num_frames: Optional[int] = None
     num_chords: Optional[int] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -199,4 +204,16 @@ class QueueStatusResponse(BaseModel):
     max_concurrent_jobs: int
     can_accept_jobs: bool
     active_job_ids: List[str]
+
+
+class SeparationModelResponse(BaseModel):
+    key: str
+    display_name: str
+    stems: List[str]
+    description: str
+
+
+class SeparationModelsListResponse(BaseModel):
+    models: List[SeparationModelResponse]
+    default_model: str
 

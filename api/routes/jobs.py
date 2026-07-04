@@ -23,17 +23,38 @@ from api.models.schemas import (
     InstrumentNote,
     ChordsResponse,
     ProcessedFrame,
-    Chord
+    Chord,
+    SeparationModelResponse,
+    SeparationModelsListResponse,
+    TranscribeResponse,
 )
 from api.services.job_manager import JobManager
 from api.workers.task_queue import task_queue
-from api.utils.exceptions import JobNotFoundException
+from api.utils.exceptions import JobNotFoundException, TooManyJobsException
 from api.utils.logging import get_logger
 from api.config import settings
 
 logger = get_logger("jobs_routes")
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
+
+
+
+@router.get("/separation-models", response_model=SeparationModelsListResponse)
+async def list_separation_models():
+    """Return available separation models for the UI model selector."""
+    from src.source_separation import list_models, DEFAULT_MODEL_KEY
+
+    models = [
+        SeparationModelResponse(
+            key=m.key,
+            display_name=m.display_name,
+            stems=list(m.stems),
+            description=m.description,
+        )
+        for m in list_models()
+    ]
+    return SeparationModelsListResponse(models=models, default_model=DEFAULT_MODEL_KEY)
 
 
 @router.get("", response_model=JobListResponse)
@@ -287,6 +308,76 @@ async def cancel_job(
         message="Job cancelled and storage cleaned up",
         cancelled=True,
     )
+
+
+@router.post("/{job_id}/retry", response_model=TranscribeResponse)
+async def retry_job(
+    job_id: str,
+    db: Session = Depends(get_db)
+):
+    """Re-run a failed (or cancelled) job.
+
+    Reuses the audio already on disk when available (a download/upload that
+    succeeded before a later stage failed), so the user doesn't have to
+    re-upload the file or re-download the URL. Falls back to re-downloading
+    from the original URL if the input file is gone.
+    """
+    job = JobManager.get_job(db, job_id)
+
+    if job.status not in [JobStatus.FAILED, JobStatus.CANCELLED]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} cannot be retried (current status: {job.status.value})",
+        )
+
+    if not task_queue.can_accept_job():
+        raise TooManyJobsException(settings.max_concurrent_jobs)
+
+    # Prefer the already-downloaded/uploaded audio so we skip Stage 0 entirely.
+    input_path = Path(job.input_file_path) if job.input_file_path else None
+    has_input = input_path is not None and input_path.exists()
+
+    if not has_input and not job.source_url:
+        # Upload job whose input file is gone — nothing to reprocess from.
+        raise HTTPException(
+            status_code=409,
+            detail="Original audio is no longer available. Please re-upload the file.",
+        )
+
+    from api.routes.transcription import run_pipeline_task
+    from api.middleware.context import get_trace_id
+
+    job = JobManager.reset_job_for_retry(db, job_id)
+
+    if has_input:
+        # source_url=None tells the pipeline to skip the download stage and
+        # process the existing file directly.
+        await task_queue.submit_job(
+            job_id,
+            run_pipeline_task,
+            job_id,
+            input_path,
+            trace_id=get_trace_id(),
+            source_url=None,
+            separation_model=job.separation_model,
+        )
+        message = "Retrying from existing audio — no re-download needed."
+    else:
+        # Input file is gone but we still have the source URL: re-download it.
+        await task_queue.submit_job(
+            job_id,
+            run_pipeline_task,
+            job_id,
+            None,
+            trace_id=get_trace_id(),
+            source_url=job.source_url,
+            separation_model=job.separation_model,
+        )
+        message = "Retrying — re-downloading audio from source URL."
+
+    logger.info(f"Job {job_id} resubmitted for retry (reuse_input={has_input})")
+
+    return TranscribeResponse(job_id=job_id, status=job.status, message=message)
 
 
 @router.delete("/{job_id}", response_model=DeleteJobResponse)

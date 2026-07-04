@@ -48,6 +48,11 @@ __pypackages__/
 # Environments
 .env
 .venv
+
+# Firebase service account credentials — never commit
+firebase-service-account.json
+*-service-account.json
+firebase-adminsdk-*.json
 env/
 venv/
 ENV/
@@ -81,6 +86,11 @@ files/*.wav
 # Database
 *.db
 api.db
+api.db-shm
+api.db-wal
+
+# Local dev scratch (screenshots, notes)
+.localdev/
 
 # OS Specific
 .DS_Store

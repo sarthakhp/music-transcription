@@ -5,7 +5,8 @@ from pathlib import Path
 
 from src.source_separation import (
     SeparationConfig,
-    AppleSiliconSeparator,
+    AudioSeparator,
+    download_model_if_needed,
     save_stems_as_mp3,
     copy_original_audio,
 )
@@ -19,12 +20,13 @@ logger = logging.getLogger(__name__)
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python run_separation.py <audio_file> [output_dir]")
-        print("Example: python run_separation.py song.mp3 output/separated")
+        print("Usage: python run_separation.py <audio_file> [output_dir] [model_key]")
+        print("Example: python run_separation.py song.mp3 output/separated htdemucs_4stem")
         sys.exit(1)
 
     audio_path = Path(sys.argv[1])
     output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("output/separated")
+    model_key = sys.argv[3] if len(sys.argv) > 3 else None
 
     if not audio_path.exists():
         print(f"Error: File not found: {audio_path}")
@@ -33,19 +35,21 @@ def main():
     print(f"Input file: {audio_path}")
     print(f"Output directory: {output_dir}")
 
-    config = SeparationConfig(
-        output_dir=output_dir,
-        output_format="wav",
-    )
+    config_kwargs = {"output_dir": output_dir, "output_format": "wav"}
+    if model_key:
+        config_kwargs["model_key"] = model_key
 
-    separator = AppleSiliconSeparator(config)
+    config = SeparationConfig(**config_kwargs)
+    print(f"Model: {config.model_key} ({config.model_filename})")
+
+    download_model_if_needed(config)
+    separator = AudioSeparator(config)
 
     print("\nStarting source separation...")
-    stems = separator.separate(audio_path)
+    stems = separator.separate(audio_path, output_dir=output_dir)
 
     print(f"\nSeparation complete! Found {len(stems)} stems:")
 
-    # Save all stems as MP3 files
     save_stems_as_mp3(
         stems=stems,
         output_dir=output_dir,
@@ -55,7 +59,6 @@ def main():
         verbose=True,
     )
 
-    # Copy/convert original audio to output directory
     print("\nCopying original audio to output directory...")
     copy_original_audio(
         input_audio_path=audio_path,
