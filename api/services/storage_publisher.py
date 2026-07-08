@@ -247,7 +247,11 @@ def _update_index(bucket, manifest: dict) -> None:
                 index = {"jobs": []}
 
         jobs = [j for j in index.get("jobs", []) if j.get("id") != manifest["id"]]
-        jobs.insert(0, summary)
+        jobs.append(summary)
+        # Sort by created_at descending so the index stays newest-first
+        # regardless of publish order (backfills publish newest-first,
+        # retries can complete out of order, etc).
+        jobs.sort(key=lambda j: j.get("created_at") or "", reverse=True)
         index["jobs"] = jobs
         index["updated_at"] = datetime.now(timezone.utc).isoformat()
 

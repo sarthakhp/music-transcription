@@ -25,12 +25,23 @@ logger = logging.getLogger(__name__)
 _separation_lock = threading.Lock()
 
 
-def download_model_if_needed(config: SeparationConfig) -> None:
+def download_model_if_needed(
+    config: SeparationConfig,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+) -> None:
     """Ensure the model file is downloaded to disk cache.
 
     Safe to call multiple times — audio_separator skips the download
     if the file already exists. Call this early (e.g. subprocess startup)
     so that separation itself is a fast disk read.
+
+    If progress_callback is given, it receives (percent, message) updates
+    while the ~600MB model downloads. audio_separator reports download
+    progress via a plain tqdm instance instantiated inside its own
+    download_file_if_not_exists(); there's no hook for it, so we swap the
+    module's `tqdm` reference for a subclass that forwards updates to the
+    callback, then restore it. If the model is already cached, the download
+    is skipped entirely and only the 0%/100% bookend calls fire.
     """
     from audio_separator.separator import Separator
 
@@ -39,7 +50,39 @@ def download_model_if_needed(config: SeparationConfig) -> None:
         output_dir=str(config.output_dir),
         output_format=config.output_format,
     )
-    sep.load_model(model_filename=config.model_filename)
+
+    if progress_callback is None:
+        sep.load_model(model_filename=config.model_filename)
+        logger.info(f"Model ready: {config.model_filename}")
+        return
+
+    import audio_separator.separator.separator as _as_separator_module
+
+    last_pct = -1
+
+    def _report(pct: int) -> None:
+        nonlocal last_pct
+        if pct != last_pct:
+            last_pct = pct
+            progress_callback(pct, f"Downloading separation model ({pct}%)")
+
+    base_tqdm = _as_separator_module.tqdm
+
+    class _ProgressTqdm(base_tqdm):
+        def update(self, n=1):
+            result = super().update(n)
+            if self.total:
+                _report(int(min(self.n, self.total) / self.total * 100))
+            return result
+
+    progress_callback(0, "Preparing separation model")
+    _as_separator_module.tqdm = _ProgressTqdm
+    try:
+        sep.load_model(model_filename=config.model_filename)
+    finally:
+        _as_separator_module.tqdm = base_tqdm
+
+    progress_callback(100, "Separation model ready")
     logger.info(f"Model ready: {config.model_filename}")
 
 

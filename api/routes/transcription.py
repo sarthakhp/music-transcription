@@ -92,12 +92,38 @@ def run_pipeline_task(
         from api.middleware.context import set_trace_id
         set_trace_id(trace_id)
 
+    from api.database.session import SessionLocal
+    from api.database.models import JobStatus, ProcessingStage
+    from api.services.progress_tracker import ProgressTracker
+
+    # Mark the job as processing immediately — otherwise the UI shows a
+    # frozen 0% with no stage while the ~600MB separation model downloads,
+    # since that happens before the pipeline worker (and its tracker) exist.
+    status_db = SessionLocal()
+    try:
+        JobManager.update_job_status(status_db, job_id, JobStatus.PROCESSING)
+    finally:
+        status_db.close()
+
+    # Model-setup progress is folded into whichever stage runs first for this
+    # job: DOWNLOAD for URL jobs (the real audio download follows it), or
+    # SEPARATION for uploads (there's no download stage at all). Each stage
+    # reserves its own leading 0-20% sub-range for this so it hands off to
+    # that stage's normal progress reporting without the bar rewinding.
+    model_setup_stage = ProcessingStage.DOWNLOAD if source_url else ProcessingStage.SEPARATION
+
+    def model_download_progress(pct: int, message: str):
+        db = SessionLocal()
+        try:
+            ProgressTracker(db, job_id).update_stage(model_setup_stage, int(pct * 0.2), message)
+        finally:
+            db.close()
+
     from src.source_separation import SeparationConfig, download_model_if_needed, DEFAULT_MODEL_KEY
     model_key = separation_model or DEFAULT_MODEL_KEY
     config = SeparationConfig(model_key=model_key)
-    download_model_if_needed(config)
+    download_model_if_needed(config, progress_callback=model_download_progress)
 
-    from api.database.session import SessionLocal
     from src.source_separation.memory import clear_memory
 
     db = SessionLocal()

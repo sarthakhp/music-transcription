@@ -108,7 +108,10 @@ class PipelineWorker:
         end_time: float | None,
     ) -> Path:
         logger.info(f"Stage 0: Download for job {self.job_id} — {source_url}")
-        self.progress_tracker.start_download("Connecting to download source")
+        # Model-setup already claimed this stage's leading 0-20% (see
+        # run_pipeline_task) — continue from there instead of resetting to 0,
+        # which would visibly rewind the progress bar.
+        self.progress_tracker.update_download(20, "Connecting to download source")
 
         from api.services.youtube_downloader import download_audio, UnsupportedURLError
 
@@ -116,7 +119,8 @@ class PipelineWorker:
             from api.database.session import SessionLocal
             db = SessionLocal()
             try:
-                ProgressTracker(db, self.job_id).update_download(progress, message)
+                scaled = int(20 + progress * 0.8)
+                ProgressTracker(db, self.job_id).update_download(scaled, message)
             finally:
                 db.close()
 
@@ -151,7 +155,12 @@ class PipelineWorker:
             f"Stage 1: Source Separation for job {self.job_id} "
             f"(model={self.separation_config.model_key})"
         )
-        self.progress_tracker.start_separation("Initializing source separation")
+        # For upload jobs, model-setup already claimed this stage's leading
+        # 0-20% (see run_pipeline_task) — continue from there instead of
+        # resetting to 0. For URL jobs this stage hasn't been touched yet
+        # (model-setup went to the DOWNLOAD stage instead), so this just
+        # advances it a little early, which is harmless.
+        self.progress_tracker.update_separation(20, "Initializing source separation")
 
         separator = AudioSeparator(self.separation_config)
 
@@ -159,7 +168,11 @@ class PipelineWorker:
             from api.database.session import SessionLocal
             db = SessionLocal()
             try:
-                ProgressTracker(db, self.job_id).update_separation(progress, message)
+                # Compressed into 20-90 (not 20-100) so the post-processing
+                # milestones below (saving stems, copying original) have
+                # their own headroom and the bar never rewinds.
+                scaled = int(20 + progress * 0.7)
+                ProgressTracker(db, self.job_id).update_separation(scaled, message)
             finally:
                 db.close()
 
@@ -169,7 +182,7 @@ class PipelineWorker:
             progress_callback=separation_progress_callback,
         )
 
-        self.progress_tracker.update_separation(70, "Saving separated stems as MP3 files")
+        self.progress_tracker.update_separation(90, "Saving separated stems as MP3 files")
         base_filename = f"{self.job_id}_{input_audio_path.stem}"
         stem_paths = save_stems_as_mp3(
             stems=stems,
@@ -180,7 +193,7 @@ class PipelineWorker:
             verbose=False
         )
 
-        self.progress_tracker.update_separation(90, "Copying original audio file")
+        self.progress_tracker.update_separation(95, "Copying original audio file")
         original_path = copy_original_audio(
             input_audio_path=input_audio_path,
             output_dir=self.separated_dir,
