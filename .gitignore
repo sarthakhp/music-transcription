@@ -96,3 +96,12 @@ api.db-wal
 .DS_Store
 
 .serena
+
+# PM2
+.pm2/
+pm2-*.log
+logs/pm2-*.log
+
+# macOS App (built from AppleScript, can be regenerated)
+Music API Server.app/
+Server Control.app/
