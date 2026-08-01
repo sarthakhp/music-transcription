@@ -126,12 +126,14 @@ def download_audio(
         }
     ]
 
-    # Trim to requested time range
+    # Trim to requested time range using ffmpeg via ExecPP
     if start_time is not None or end_time is not None:
+        ss_arg = f"-ss {start_time}" if start_time is not None else ""
+        to_arg = f"-to {end_time}" if end_time is not None else ""
+        trim_cmd = f"ffmpeg -i %(filepath)q {ss_arg} {to_arg} -c copy -f mp3 %(filepath)q.tmp && mv %(filepath)q.tmp %(filepath)q"
         postprocessors.append({
-            "key": "FFmpegTrimAudio",
-            "start_time": start_time,
-            "end_time": end_time,
+            "key": "Exec",
+            "exec_cmd": trim_cmd,
         })
 
     ydl_opts = {
