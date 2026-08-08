@@ -105,3 +105,6 @@ logs/pm2-*.log
 # macOS App (built from AppleScript, can be regenerated)
 Music API Server.app/
 Server Control.app/
+
+# claude
+CLAUDE.md
