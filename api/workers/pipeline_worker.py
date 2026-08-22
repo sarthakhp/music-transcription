@@ -81,10 +81,14 @@ class PipelineWorker:
                 transcription_result.get("tempo_bpm"),
             )
 
+            logger.info(f"Stems available for chord detection: {list(stems.keys())}")
+            instrumental_fallback = (
+                stems.get("instrumental") or stems.get("other") or stems.get("original")
+            )
             chord_progression = self._run_chord_detection(
                 stems.get("bass"),
                 stems.get("other"),
-                stems.get("instrumental"),
+                instrumental_fallback,
                 transcription_result.get("tempo_bpm")
             )
             
@@ -182,6 +186,7 @@ class PipelineWorker:
             progress_callback=separation_progress_callback,
         )
 
+        logger.info(f"Raw separation output keys: {list(stems.keys())}")
         self.progress_tracker.update_separation(90, "Saving separated stems as MP3 files")
         base_filename = f"{self.job_id}_{input_audio_path.stem}"
         stem_paths = save_stems_as_mp3(
@@ -215,6 +220,7 @@ class PipelineWorker:
             stem_paths=stem_paths_dict
         )
 
+        logger.info(f"Saved stem paths: {list(stem_paths.keys())}")
         self.progress_tracker.complete_separation(f"Separated into {len(stem_paths)} stems successfully")
         logger.info(f"Separation complete: {len(stem_paths)} stems saved")
 

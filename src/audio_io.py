@@ -65,6 +65,49 @@ def load_audio(path: str | Path) -> tuple[torch.Tensor, int]:
             os.unlink(tmp_path)
 
 
+def normalize_audio_format(path: Path) -> Path:
+    """Ensure the audio file at *path* is in a libsndfile-readable format.
+
+    Browsers (MediaRecorder) produce WebM/Opus even when the filename ends in
+    .wav.  soundfile/libsndfile cannot read WebM, so we probe the file with
+    soundfile first and, if that fails, convert to 16-bit PCM WAV via FFmpeg
+    in-place (replacing the original file).
+
+    Returns the (possibly new) path — callers should use the returned value.
+    """
+    try:
+        sf.info(str(path))
+        return path  # already readable by libsndfile
+    except Exception:
+        pass  # fall through to FFmpeg conversion
+
+    logger.info(
+        f"File {path.name!r} is not readable by libsndfile; converting to WAV via FFmpeg"
+    )
+
+    wav_path = path.with_suffix(".wav")
+    tmp_path = path.parent / (path.stem + "_converting.wav")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(path),
+                "-acodec", "pcm_s16le",
+                str(tmp_path),
+            ],
+            check=True,
+            timeout=120,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"FFmpeg conversion failed for {path.name!r}: {e}") from e
+
+    # Atomically replace: remove old file, rename converted file
+    path.unlink()
+    tmp_path.rename(wav_path)
+    logger.info(f"Converted {path.name!r} -> {wav_path.name!r}")
+    return wav_path
+
+
 def validate_ffmpeg() -> None:
     """Check that FFmpeg is installed and callable. Raises RuntimeError if not."""
     try:

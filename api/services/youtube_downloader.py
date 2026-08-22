@@ -48,6 +48,9 @@ def fetch_metadata(url: str, check_duration: bool = True) -> VideoMetadata:
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        "format": "bestaudio/best",
+        "cookiesfrombrowser": ("chrome", "Profile 4"),
+        "remote_components": ["ejs:github"],
     }
 
     try:
@@ -144,6 +147,8 @@ def download_audio(
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [_progress_hook],
+        "cookiesfrombrowser": ("chrome", "Profile 4"),
+        "remote_components": ["ejs:github"],
     }
 
     try:
@@ -154,6 +159,12 @@ def download_audio(
             mp3_path = output_dir / f"{title}.mp3"
             downloaded_path.append(mp3_path)
     except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        if "403" in msg or "Forbidden" in msg:
+            raise UnsupportedURLError(
+                "YouTube blocked the download (HTTP 403). Make sure you are logged "
+                "into YouTube in Chrome, then try again."
+            ) from e
         raise UnsupportedURLError(f"Download failed: {e}") from e
 
     # yt-dlp may produce a slightly different filename — scan for any mp3

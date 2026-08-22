@@ -15,6 +15,7 @@ from api.utils.exceptions import (
     TooManyJobsException
 )
 from api.utils.logging import get_logger
+from src.audio_io import normalize_audio_format
 
 logger = get_logger("transcription_routes")
 
@@ -179,9 +180,10 @@ async def transcribe_audio(
         job.file_size = file_size
         db.commit()
 
-        JobManager.update_file_paths(db, job.id, input_file_path=str(input_file_path))
-
         logger.info(f"File saved: {input_file_path} ({file_size} bytes)")
+
+        input_file_path = normalize_audio_format(input_file_path)
+        JobManager.update_file_paths(db, job.id, input_file_path=str(input_file_path))
 
         from api.middleware.context import get_trace_id
         await task_queue.submit_job(

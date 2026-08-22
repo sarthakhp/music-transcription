@@ -24,6 +24,29 @@ logger = logging.getLogger(__name__)
 
 _separation_lock = threading.Lock()
 
+MODEL_DIR = Path.home() / ".cache" / "audio-separator-models"
+_DOWNLOAD_CHECKS_URL = "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/download_checks.json"
+
+
+def _ensure_download_checks(model_dir: Path) -> None:
+    """Pre-fetch the model manifest, tolerating network errors if stale copy exists."""
+    import requests
+
+    manifest = model_dir / "download_checks.json"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        response = requests.get(_DOWNLOAD_CHECKS_URL, timeout=15)
+        response.raise_for_status()
+        manifest.write_bytes(response.content)
+        logger.debug("download_checks.json refreshed")
+    except Exception as exc:
+        if manifest.exists():
+            logger.warning(f"Could not refresh download_checks.json ({exc}); using cached copy")
+        else:
+            raise RuntimeError(
+                f"Cannot fetch model manifest and no cached copy exists: {exc}"
+            ) from exc
+
 
 def download_model_if_needed(
     config: SeparationConfig,
@@ -45,8 +68,12 @@ def download_model_if_needed(
     """
     from audio_separator.separator import Separator
 
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_download_checks(MODEL_DIR)
+
     logger.info(f"Ensuring model is cached: {config.model_filename} (key={config.model_key})")
     sep = Separator(
+        model_file_dir=str(MODEL_DIR),
         output_dir=str(config.output_dir),
         output_format=config.output_format,
     )
@@ -116,6 +143,7 @@ class AudioSeparator:
         from audio_separator.separator import Separator
 
         separator = Separator(
+            model_file_dir=str(MODEL_DIR),
             output_dir=str(output_dir),
             output_format=self.config.output_format,
         )

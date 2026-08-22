@@ -10,6 +10,9 @@ scipy>=1.10.0
 # Source Separation (BS-RoFormer via audio-separator)
 audio-separator>=0.41.0
 
+# Melodic Transcription (audio-to-MIDI)
+basic-pitch==0.4.0
+
 # Vocal Transcription (GPU-accelerated pitch detection)
 torchcrepe>=0.0.24
 

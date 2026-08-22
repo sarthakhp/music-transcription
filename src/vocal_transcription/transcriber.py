@@ -71,17 +71,6 @@ class VocalTranscriber:
             bpm=tempo_bpm,
         )
 
-        viewer_path = Path("/Users/psarthak/personal/projects/music-transcription-viewer/vocal_pitch_viewer/web/sample_data/pitch_data.json")
-        viewer_path.parent.mkdir(parents=True, exist_ok=True)
-        export_processed_frames(
-            processed_frames=processed_frames,
-            output_path=viewer_path,
-            original_song_path=original_audio_path,
-            vocal_file_path=audio_path,
-            bpm=tempo_bpm,
-        )
-        logger.info(f"Also saved processed frames to viewer location: {viewer_path}")
-
         logger.info("Step 4/5: Detecting key and scale...")
         from .key_detector import KeyScaleDetector
         key_detector = KeyScaleDetector(self.config)
