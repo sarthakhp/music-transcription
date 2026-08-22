@@ -133,7 +133,7 @@ class PipelineWorker:
                 end_time=end_time,
             )
         except UnsupportedURLError as e:
-            raise RuntimeError(f"Download failed: {e}") from e
+            raise RuntimeError(str(e)) from e
 
         # Update file size now that we know it
         file_size = audio_path.stat().st_size
@@ -220,8 +220,28 @@ class PipelineWorker:
 
         return stem_paths
     
-    def _run_transcription(self, vocals_path: Path, original_audio_path: Path) -> dict:
+    def _run_transcription(self, vocals_path: Path | None, original_audio_path: Path) -> dict:
         logger.info(f"Stage 2: Vocal Transcription for job {self.job_id}")
+
+        if vocals_path is None:
+            logger.warning(f"No vocals stem for job {self.job_id}; detecting tempo from original audio only")
+            self.progress_tracker.start_transcription("No vocals detected — detecting tempo from full mix")
+            from src.vocal_transcription.tempo_detector import TempoDetector
+            from src.vocal_transcription.constants import DEFAULT_TEMPO_BPM
+            import soundfile as sf
+            try:
+                tempo_bpm = TempoDetector().detect(original_audio_path)
+            except Exception:
+                tempo_bpm = DEFAULT_TEMPO_BPM
+            sf_info = sf.info(str(original_audio_path))
+            duration = sf_info.duration
+            JobManager.update_job_metadata(
+                self.db, self.job_id,
+                duration=duration, tempo_bpm=tempo_bpm, num_frames=0
+            )
+            self.progress_tracker.complete_transcription(f"Tempo detected: {tempo_bpm:.1f} BPM (no vocals)")
+            return {"tempo_bpm": tempo_bpm, "duration": duration, "num_frames": 0}
+
         self.progress_tracker.start_transcription("Loading vocal track and initializing transcription model")
 
         config = TranscriptionConfig(
