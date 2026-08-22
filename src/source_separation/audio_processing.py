@@ -35,8 +35,6 @@ def process_chunk(
     os.close(temp_fd)
     temp_path = Path(temp_path_str)
 
-    peak = chunk.abs().max().item()
-    logger.info(f"Chunk dtype={chunk.dtype}, shape={tuple(chunk.shape)}, peak={peak:.6f}")
     torchaudio.save(str(temp_path), chunk, sr)
     input_samples = chunk.shape[1]
 
