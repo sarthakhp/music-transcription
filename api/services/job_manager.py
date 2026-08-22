@@ -129,11 +129,13 @@ class JobManager:
         job_id: str,
         stage: ProcessingStage,
         progress: int,
-        message: Optional[str] = None
+        message: Optional[str] = None,
+        stage_progress: int = 0,
     ) -> Job:
         job = JobManager.get_job(db, job_id)
         job.stage = stage
         job.progress = progress
+        job.stage_progress = stage_progress
 
         if message is not None:
             job.message = message
@@ -141,7 +143,7 @@ class JobManager:
         db.commit()
         db.refresh(job)
 
-        logger.debug(f"Job {job_id} stage: {stage}, progress: {progress}%")
+        logger.debug(f"Job {job_id} stage: {stage}, progress: {progress}%, stage_progress: {stage_progress}%")
         return job
     
     @staticmethod

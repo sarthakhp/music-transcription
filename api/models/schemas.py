@@ -55,6 +55,7 @@ class JobStatusResponse(BaseModel):
     status: JobStatus
     stage: Optional[ProcessingStage] = None
     progress: int
+    stage_progress: int = 0
     error_message: Optional[str] = None
     message: Optional[str] = None
 

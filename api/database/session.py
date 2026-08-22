@@ -37,6 +37,26 @@ def get_db() -> Session:
 def init_db():
     from api.database.models import Base
     Base.metadata.create_all(bind=engine)
+    _migrate_db()
+
+
+def _migrate_db():
+    """Apply additive schema migrations for columns added after initial creation."""
+    with engine.connect() as conn:
+        # Add stage_progress column if missing (added after initial schema)
+        if "sqlite" in settings.database_url:
+            result = conn.execute(
+                __import__("sqlalchemy").text("PRAGMA table_info(jobs)")
+            )
+            columns = {row[1] for row in result}
+            if "stage_progress" not in columns:
+                conn.execute(
+                    __import__("sqlalchemy").text(
+                        "ALTER TABLE jobs ADD COLUMN stage_progress INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+                conn.commit()
+                logger.info("Migrated: added stage_progress column to jobs")
 
 
 def close_db():

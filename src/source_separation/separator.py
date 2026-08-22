@@ -210,7 +210,7 @@ class AudioSeparator:
                 f"Chunked processing: {self.config.chunk_duration}s chunks, "
                 f"{self.config.overlap}s overlap"
             )
-            return self._separate_with_chunking(audio, sr, separator, progress_callback)
+            return self._separate_with_chunking(audio, sr, separator, output_dir, progress_callback)
 
     def _separate_whole(
         self,
@@ -224,21 +224,12 @@ class AudioSeparator:
         if progress_callback:
             progress_callback(20, "Separating audio into stems")
 
-        stop_estimator = threading.Event()
-        if progress_callback:
-            estimated_seconds = max(
-                duration * self.config.estimated_realtime_factor, 15,
-            )
-            _start_progress_estimator(
-                progress_callback, stop_estimator,
-                start_pct=20, end_pct=95,
-                estimated_seconds=estimated_seconds,
-            )
-
-        try:
-            result = process_chunk(audio, sr, separator, self.config)
-        finally:
-            stop_estimator.set()
+        result = process_chunk(
+            audio, sr, separator, self.config,
+            progress_callback=progress_callback,
+            progress_start_pct=20,
+            progress_end_pct=95,
+        )
 
         if progress_callback:
             progress_callback(100, "Separation complete")
@@ -249,6 +240,7 @@ class AudioSeparator:
         audio: torch.Tensor,
         sr: int,
         separator,
+        output_dir: Path,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> dict[str, np.ndarray]:
         chunk_samples = self.config.chunk_duration * sr
@@ -277,8 +269,21 @@ class AudioSeparator:
             if self.config.clear_cache_between_chunks:
                 clear_memory(self.device)
 
+            # Recreate the separator for each chunk to prevent MPS state/memory
+            # accumulation that causes silent hangs on later chunks.
+            separator = self._create_separator(output_dir)
+
             logger.debug(f"Chunk range: {start / sr:.1f}s - {end / sr:.1f}s")
-            separated_chunk = process_chunk(chunk, sr, separator, self.config)
+            # Each outer chunk owns a slice of the 20-95 progress window so
+            # tqdm steps inside process_chunk drive progress smoothly across chunks.
+            chunk_start_pct = int(20 + (chunk_num - 1) / total_chunks * 75)
+            chunk_end_pct = int(20 + chunk_num / total_chunks * 75)
+            separated_chunk = process_chunk(
+                chunk, sr, separator, self.config,
+                progress_callback=progress_callback,
+                progress_start_pct=chunk_start_pct,
+                progress_end_pct=chunk_end_pct,
+            )
             chunks.append(separated_chunk)
 
         if progress_callback:
@@ -293,26 +298,3 @@ class AudioSeparator:
         return result
 
 
-def _start_progress_estimator(
-    callback: Callable[[int, str], None],
-    stop_event: threading.Event,
-    start_pct: int,
-    end_pct: int,
-    estimated_seconds: float,
-    interval: float = 2.0,
-) -> None:
-    """Background thread for smooth progress updates during separation."""
-    def _run():
-        elapsed = 0.0
-        while not stop_event.is_set():
-            stop_event.wait(timeout=interval)
-            elapsed += interval
-            ratio = min(elapsed / estimated_seconds, 1.0)
-            pct = int(start_pct + (end_pct - start_pct) * ratio)
-            try:
-                callback(pct, f"Separating audio ({int(elapsed)}s elapsed)")
-            except Exception:
-                break
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()

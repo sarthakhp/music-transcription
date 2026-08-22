@@ -31,7 +31,8 @@ class ProgressTracker:
             self.job_id,
             stage,
             overall_progress,
-            message
+            message,
+            stage_progress=stage_progress,
         )
 
         logger.info(f"Job {self.job_id}: {stage.value} - {stage_progress}% (overall: {overall_progress}%)")

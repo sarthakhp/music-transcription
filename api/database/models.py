@@ -33,6 +33,7 @@ class Job(Base):
     status = Column(Enum(JobStatus), default=JobStatus.QUEUED, nullable=False, index=True)
     stage = Column(Enum(ProcessingStage), nullable=True)
     progress = Column(Integer, default=0, nullable=False)
+    stage_progress = Column(Integer, default=0, nullable=False)
     
     created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
     started_at = Column(DateTime, nullable=True)

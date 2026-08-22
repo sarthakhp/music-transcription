@@ -34,7 +34,7 @@ _register(SeparationModel(
     model_filename="model_bs_roformer_ep_317_sdr_12.9755.ckpt",
     stems=["vocals", "instrumental"],
     description="Fast 2-stem separation: vocals + instrumental. Best for vocal isolation.",
-    estimated_realtime_factor=1.4,
+    estimated_realtime_factor=4.0,
 ))
 
 _register(SeparationModel(
