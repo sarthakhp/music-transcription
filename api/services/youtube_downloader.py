@@ -49,8 +49,6 @@ def fetch_metadata(url: str, check_duration: bool = True) -> VideoMetadata:
         "skip_download": True,
         "noplaylist": True,
         "format": "bestaudio/best",
-        "cookiesfrombrowser": ("chrome", "Profile 4"),
-        "remote_components": ["ejs:github"],
     }
 
     try:
