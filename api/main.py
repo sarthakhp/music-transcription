@@ -1,7 +1,10 @@
 import logging
+import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from api.config import settings
 from api.database.session import init_db, close_db, SessionLocal
 from api.database.models import JobStatus
@@ -147,16 +150,6 @@ async def shutdown_event():
         handler.close()
 
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Music Transcription API",
-        "version": "1.0.0",
-        "status": "running",
-        "docs": "/docs"
-    }
-
-
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     queue_status = task_queue.get_queue_status()
@@ -168,3 +161,11 @@ async def health_check():
         active_jobs=queue_status["active_jobs"],
         max_concurrent_jobs=queue_status["max_concurrent_jobs"]
     )
+
+
+# Serve the Flutter web UI when running as a bundled app.
+# MT_WEB_DIR points to the flutter build web output inside the app bundle.
+# Must be mounted LAST so all /api/v1/* and /health routes take priority.
+_web_dir = os.environ.get("MT_WEB_DIR")
+if _web_dir and Path(_web_dir).is_dir():
+    app.mount("/", StaticFiles(directory=_web_dir, html=True), name="web")

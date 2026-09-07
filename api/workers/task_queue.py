@@ -1,6 +1,7 @@
 import asyncio
-import multiprocessing
 import shutil
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Dict, Optional, Set
@@ -10,9 +11,8 @@ from api.config import settings
 
 logger = get_logger("task_queue")
 
-# Use spawn explicitly — safe with MPS/Metal and async code.
-# fork is dangerous with MPS GPU state and uvicorn's event loop.
-_mp_context = multiprocessing.get_context("spawn")
+_RUNNER = Path(__file__).parent / "job_runner.py"
+_PYTHON = sys.executable  # venv python that started this process
 
 
 class TaskQueue:
@@ -26,50 +26,50 @@ class TaskQueue:
         return cls._instance
 
     def _initialize(self):
-        self._processes: Dict[str, _mp_context.Process] = {}
+        self._processes: Dict[str, subprocess.Popen] = {}
         self._active_jobs: Set[str] = set()
         self._lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self._start_monitor()
         logger.info(
-            f"TaskQueue initialized with process-based execution "
-            f"(max {settings.max_concurrent_jobs} concurrent jobs)"
+            f"TaskQueue initialized (max {settings.max_concurrent_jobs} concurrent jobs)"
         )
 
     def _start_monitor(self):
-        """Daemon thread that watches for completed/crashed processes and
-        removes them from the active set."""
-
         def _monitor():
             while not self._shutdown_event.is_set():
                 with self._lock:
                     completed = [
                         jid
                         for jid, proc in self._processes.items()
-                        if not proc.is_alive()
+                        if proc.poll() is not None
                     ]
                     for jid in completed:
                         proc = self._processes.pop(jid)
                         self._active_jobs.discard(jid)
-                        exitcode = proc.exitcode
-                        if exitcode == 0:
+                        rc = proc.returncode
+                        if rc == 0:
                             logger.info(
-                                f"Job {jid} process completed successfully (exit 0) "
+                                f"Job {jid} completed (exit 0) "
                                 f"({len(self._active_jobs)}/{settings.max_concurrent_jobs} active)"
                             )
-                        elif exitcode == -9:
-                            # SIGKILL — expected for cancelled jobs
-                            logger.info(f"Job {jid} process was killed (SIGKILL)")
+                        elif rc == -9:
+                            logger.info(f"Job {jid} killed (SIGKILL)")
                         else:
+                            log_path = settings.log_file.parent / f"job_{jid}.log"
+                            tail = ""
+                            try:
+                                lines = log_path.read_text(errors="replace").splitlines()
+                                tail = "\n".join(lines[-40:])
+                            except Exception:
+                                pass
                             logger.error(
-                                f"Job {jid} process exited unexpectedly (exit {exitcode})"
+                                f"Job {jid} process exited unexpectedly (exit {rc})"
+                                + (f"\n--- job log ---\n{tail}\n--- end ---" if tail else " (no log)")
                             )
                 self._shutdown_event.wait(timeout=1.0)
 
-        t = threading.Thread(
-            target=_monitor, daemon=True, name="task_queue_monitor"
-        )
-        t.start()
+        threading.Thread(target=_monitor, daemon=True, name="task_queue_monitor").start()
 
     # ------------------------------------------------------------------
     # Queue state
@@ -91,72 +91,81 @@ class TaskQueue:
     # ------------------------------------------------------------------
 
     async def submit_job(self, job_id: str, task_func, *args, **kwargs):
-        """Spawn a new OS process for the job.
+        """Launch job_runner.py as a subprocess.
 
-        All args/kwargs must be picklable (required by spawn start method).
+        Uses subprocess.Popen instead of multiprocessing.Process to avoid
+        Python's spawn bootstrap re-running uvicorn's __main__ module.
+        All stdout+stderr go to a per-job log file for easy debugging.
         """
         with self._lock:
-            # Access _active_jobs directly — do NOT call can_accept_job() or
-            # is_job_active() here. Those methods acquire self._lock themselves,
-            # and threading.Lock is not reentrant, causing a self-deadlock.
             if len(self._active_jobs) >= settings.max_concurrent_jobs:
-                raise RuntimeError(
-                    f"Task queue is full ({settings.max_concurrent_jobs} jobs)"
-                )
+                raise RuntimeError(f"Task queue full ({settings.max_concurrent_jobs} jobs)")
             if job_id in self._active_jobs:
                 raise RuntimeError(f"Job {job_id} is already running")
 
-            process = _mp_context.Process(
-                target=task_func,
-                args=args,
-                kwargs=kwargs,
-                name=f"pipeline_{job_id}",
-                daemon=False,
+            log_path = settings.log_file.parent / f"job_{job_id}.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Build CLI args from positional args and kwargs.
+            # submit_job is called as: submit_job(job_id, func, job_id, input_path,
+            #   trace_id=..., source_url=..., separation_model=...)
+            # args[0] = job_id, args[1] = input_audio_path
+            job_id_arg = args[0] if args else job_id
+            input_path = args[1] if len(args) > 1 else None
+            trace_id = kwargs.get("trace_id")
+            source_url = kwargs.get("source_url")
+            separation_model = kwargs.get("separation_model")
+
+            cmd = [_PYTHON, str(_RUNNER), str(job_id_arg)]
+            if input_path:
+                cmd += ["--input-path", str(input_path)]
+            if source_url:
+                cmd += ["--source-url", source_url]
+            if trace_id:
+                cmd += ["--trace-id", trace_id]
+            if separation_model:
+                cmd += ["--separation-model", separation_model]
+
+            log_fd = open(log_path, "w")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=log_fd,
+                stderr=log_fd,
+                cwd=str(_RUNNER.parent.parent.parent),  # backend dir
             )
-            self._processes[job_id] = process
+            log_fd.close()  # parent doesn't need the fd; subprocess has it
+
+            self._processes[job_id] = proc
             self._active_jobs.add(job_id)
 
         logger.info(
-            f"Spawning process for job {job_id} "
+            f"Launched job {job_id} (pid={proc.pid}, log={log_path.name}) "
             f"({self.get_active_job_count()}/{settings.max_concurrent_jobs})"
         )
-        # process.start() with spawn bootstraps a fresh Python interpreter.
-        # Run in executor so it doesn't block the asyncio event loop.
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, process.start)
-        logger.info(f"Process started for job {job_id} (pid={process.pid})")
 
     # ------------------------------------------------------------------
     # Cancellation
     # ------------------------------------------------------------------
 
-    def cancel_job(
-        self, job_id: str, job_storage_path: Optional[Path] = None
-    ) -> bool:
-        """Send SIGKILL to the job's process and clean up its storage.
-
-        SIGKILL cannot be caught or ignored — it terminates the process
-        immediately regardless of what C extension or GPU kernel is running.
-        """
+    def cancel_job(self, job_id: str, job_storage_path: Optional[Path] = None) -> bool:
         with self._lock:
-            process = self._processes.get(job_id)
-            if not process:
+            proc = self._processes.get(job_id)
+            if not proc:
                 return False
 
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=5)
-                logger.info(f"Job {job_id} process killed")
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+                logger.info(f"Job {job_id} killed")
 
             self._processes.pop(job_id, None)
             self._active_jobs.discard(job_id)
 
-        # Clean up storage outside the lock — shutil.rmtree can take a moment
         if job_storage_path:
             storage = Path(job_storage_path)
             if storage.exists():
                 shutil.rmtree(storage, ignore_errors=True)
-                logger.info(f"Cleaned up storage for cancelled job {job_id}: {storage}")
+                logger.info(f"Cleaned up storage for cancelled job {job_id}")
 
         return True
 
@@ -166,34 +175,29 @@ class TaskQueue:
 
     def shutdown(self, wait: bool = True, timeout: float = 30):
         active = self.get_active_job_count()
-        if active:
-            logger.info(
-                f"Shutting down task queue with {active} active job(s), "
-                f"{'waiting' if wait else 'killing immediately'}..."
-            )
-        else:
-            logger.info("Shutting down task queue (no active jobs)...")
-
+        logger.info(
+            f"Shutting down task queue "
+            f"({'no active jobs' if not active else f'{active} active job(s)'})"
+        )
         self._shutdown_event.set()
 
         with self._lock:
             processes = list(self._processes.items())
 
-        for job_id, process in processes:
-            if not process.is_alive():
+        for job_id, proc in processes:
+            if proc.poll() is not None:
                 continue
             if wait:
-                logger.info(f"Waiting for job {job_id} to finish (up to {timeout}s)...")
-                process.join(timeout=timeout)
-                if process.is_alive():
-                    logger.warning(
-                        f"Job {job_id} did not finish in {timeout}s — killing"
-                    )
-                    process.kill()
-                    process.join(timeout=5)
+                logger.info(f"Waiting for job {job_id} (up to {timeout}s)...")
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Job {job_id} timed out — killing")
+                    proc.kill()
+                    proc.wait(timeout=5)
             else:
-                process.kill()
-                process.join(timeout=5)
+                proc.kill()
+                proc.wait(timeout=5)
 
         with self._lock:
             self._processes.clear()
@@ -203,10 +207,11 @@ class TaskQueue:
 
     def get_queue_status(self) -> dict:
         with self._lock:
+            active = len(self._active_jobs)
             return {
-                "active_jobs": len(self._active_jobs),
+                "active_jobs": active,
                 "max_concurrent_jobs": settings.max_concurrent_jobs,
-                "can_accept_jobs": self.can_accept_job(),
+                "can_accept_jobs": active < settings.max_concurrent_jobs,
                 "active_job_ids": list(self._active_jobs),
             }
 

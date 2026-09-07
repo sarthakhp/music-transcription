@@ -147,8 +147,6 @@ def download_audio(
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [_progress_hook],
-        "cookiesfrombrowser": ("chrome", "Profile 4"),
-        "remote_components": ["ejs:github"],
     }
 
     try:

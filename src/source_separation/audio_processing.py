@@ -97,7 +97,11 @@ def process_chunk(
         )
         os.close(temp_fd)
         temp_path = Path(temp_path_str)
-        torchaudio.save(str(temp_path), chunk, sr)
+        # torchaudio.save uses torchcodec which requires FFmpeg dylibs not
+        # available in the bundle — use soundfile instead.
+        import soundfile as sf
+        import numpy as _np
+        sf.write(str(temp_path), chunk.numpy().T if chunk.ndim == 2 else chunk.numpy(), sr)
 
     input_samples = chunk.shape[1]
 

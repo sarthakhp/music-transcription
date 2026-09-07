@@ -17,7 +17,6 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import torch
-import torchaudio
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +27,20 @@ def load_audio(path: str | Path) -> tuple[torch.Tensor, int]:
     Returns:
         Tuple of (waveform tensor [channels, samples], sample_rate).
     """
+    import torchaudio  # deferred — top-level import crashes subprocesses via torchcodec dylib load
     path = str(path)
 
     try:
         waveform, sr = torchaudio.load(path)
         return waveform, sr
     except RuntimeError as e:
-        if "Failed to decode audio" not in str(e) and "Could not open input" not in str(e):
+        _msg = str(e)
+        if (
+            "Failed to decode audio" not in _msg
+            and "Could not open input" not in _msg
+            and "Failed to create AudioDecoder" not in _msg
+            and "Could not load libtorchcodec" not in _msg
+        ):
             raise
         logger.warning(
             f"torchcodec failed to load {path!r} ({e}), "

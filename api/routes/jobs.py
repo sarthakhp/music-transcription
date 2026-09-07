@@ -324,7 +324,7 @@ async def retry_job(
     """
     job = JobManager.get_job(db, job_id)
 
-    if job.status not in [JobStatus.FAILED, JobStatus.CANCELLED]:
+    if job.status not in [JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.QUEUED]:
         raise HTTPException(
             status_code=400,
             detail=f"Job {job_id} cannot be retried (current status: {job.status.value})",

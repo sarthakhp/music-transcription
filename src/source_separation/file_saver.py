@@ -24,7 +24,8 @@ def save_stem_as_mp3(
 
     try:
         audio_tensor = torch.tensor(audio_data)
-        torchaudio.save(str(temp_wav_path), audio_tensor, sample_rate)
+        import soundfile as sf
+        sf.write(str(temp_wav_path), audio_tensor.numpy().T if audio_tensor.ndim == 2 else audio_tensor.numpy(), sample_rate)
 
         audio_segment = AudioSegment.from_wav(str(temp_wav_path))
         audio_segment.export(str(mp3_path), format="mp3", bitrate=bitrate)

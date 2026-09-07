@@ -86,6 +86,18 @@ def run_pipeline_task(
     For URL jobs: input_audio_path is None and source_url is set.
     The pipeline worker downloads the audio as Stage 0.
     """
+    import sys as _sys
+    import traceback as _tb
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        msg = "".join(_tb.format_exception(exc_type, exc_value, exc_tb))
+        print(f"[subprocess crash] {msg}", flush=True)
+        # Also write directly to stderr in case stdout was redirected
+        _sys.__stderr__.write(f"[subprocess crash] {msg}")
+        _sys.__stderr__.flush()
+
+    _sys.excepthook = _excepthook
+
     from api.utils.logging import setup_logging
     setup_logging()
 
