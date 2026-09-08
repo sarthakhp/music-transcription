@@ -124,13 +124,26 @@ async def transcribe_url(
         c if c.isalnum() or c in " -_." else "_" for c in metadata.title
     )[:128].strip() or "audio"
 
+    # Append trim info when the user cut the audio
+    is_trimmed = request.start_time is not None or request.end_time is not None
+    if is_trimmed:
+        def _fmt(secs: float) -> str:
+            m, s = divmod(int(secs), 60)
+            return f"{m}:{s:02d}"
+        trim_label = f"[{_fmt(effective_start)}-{_fmt(effective_end)}, {_fmt(selected_duration)}]"
+        display_title = f"{metadata.title} {trim_label}"
+        safe_filename = f"{safe_title}_{_fmt(effective_start).replace(':', 'm')}s-{_fmt(effective_end).replace(':', 'm')}s.mp3"
+    else:
+        display_title = metadata.title
+        safe_filename = f"{safe_title}.mp3"
+
     job = JobManager.create_job(
         db=db,
-        input_filename=f"{safe_title}.mp3",
+        input_filename=safe_filename,
         file_size=0,
         source_type="url",
         source_url=request.url,
-        video_title=metadata.title,
+        video_title=display_title,
         separation_model=model_key,
     )
 
