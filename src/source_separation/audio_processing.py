@@ -40,19 +40,11 @@ def _make_progress_tqdm(
     start_pct: int,
     end_pct: int,
     progress_callback: Callable[[int, str], None],
+    chunk_label: str = "",
 ):
-    """Return a tqdm subclass that drives progress_callback from real model steps.
+    """Return a tqdm subclass that drives progress_callback from real model steps."""
+    msg = f"Separating audio{' (' + chunk_label + ')' if chunk_label else ''}"
 
-    Each tqdm.update() maps the current step count linearly from start_pct to
-    end_pct and calls progress_callback(pct, message). This replaces the
-    time-based estimator with accurate, model-derived progress.
-
-    We patch the specific architecture modules (MDX / MDXC) because tqdm is
-    imported there at the top level. If audio-separator moves the loop to a
-    different file, the patch silently falls back to the original tqdm — so
-    update _TQDM_MODULES in process_chunk if progress stops working after an
-    upstream upgrade.
-    """
     class _ProgressTqdm(base_tqdm):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -66,7 +58,7 @@ def _make_progress_tqdm(
             if self.total:
                 pct = int(start_pct + (end_pct - start_pct) * self.n / self.total)
                 try:
-                    progress_callback(pct, f"Separating audio (step {self.n}/{self.total})")
+                    progress_callback(pct, msg)
                 except Exception as exc:
                     logger.warning(f"Progress callback failed in tqdm step: {exc}")
             return result
@@ -90,6 +82,7 @@ def process_chunk(
     progress_callback: Optional[Callable[[int, str], None]] = None,
     progress_start_pct: int = 20,
     progress_end_pct: int = 95,
+    chunk_label: str = "",
 ) -> dict[str, np.ndarray]:
     with _timed("write temp wav"):
         temp_fd, temp_path_str = tempfile.mkstemp(
@@ -114,7 +107,7 @@ def process_chunk(
             try:
                 mod = importlib.import_module(mod_name)
                 base = mod.tqdm
-                mod.tqdm = _make_progress_tqdm(base, progress_start_pct, progress_end_pct, progress_callback)
+                mod.tqdm = _make_progress_tqdm(base, progress_start_pct, progress_end_pct, progress_callback, chunk_label)
                 patched.append((mod, base))
             except Exception as exc:
                 logger.warning(f"Could not patch tqdm in {mod_name}: {exc}")

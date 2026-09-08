@@ -258,14 +258,6 @@ class AudioSeparator:
 
             logger.info(f"Processing chunk {chunk_num}/{total_chunks}")
 
-            chunk_progress = int(20 + (chunk_num / total_chunks) * 70)
-            if progress_callback:
-                progress_callback(
-                    chunk_progress,
-                    f"Separating chunk {chunk_num}/{total_chunks} "
-                    f"({duration_minutes:.1f} min audio)",
-                )
-
             if self.config.clear_cache_between_chunks:
                 clear_memory(self.device)
 
@@ -274,15 +266,19 @@ class AudioSeparator:
             separator = self._create_separator(output_dir)
 
             logger.debug(f"Chunk range: {start / sr:.1f}s - {end / sr:.1f}s")
-            # Each outer chunk owns a slice of the 20-95 progress window so
-            # tqdm steps inside process_chunk drive progress smoothly across chunks.
+            # Each outer chunk owns a contiguous slice of the 20-95 progress window.
+            # The tqdm hook inside process_chunk drives progress smoothly within that
+            # slice — no outer callback call beforehand, which would jump the bar
+            # forward then back as tqdm restarts from chunk_start_pct.
             chunk_start_pct = int(20 + (chunk_num - 1) / total_chunks * 75)
             chunk_end_pct = int(20 + chunk_num / total_chunks * 75)
+            chunk_label = f"chunk {chunk_num}/{total_chunks}" if total_chunks > 1 else ""
             separated_chunk = process_chunk(
                 chunk, sr, separator, self.config,
                 progress_callback=progress_callback,
                 progress_start_pct=chunk_start_pct,
                 progress_end_pct=chunk_end_pct,
+                chunk_label=chunk_label,
             )
             chunks.append(separated_chunk)
 
