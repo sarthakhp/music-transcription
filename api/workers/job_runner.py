@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--source-url", default=None)
     parser.add_argument("--trace-id", default=None)
     parser.add_argument("--separation-model", default=None)
+    parser.add_argument("--start-time", type=float, default=None)
+    parser.add_argument("--end-time", type=float, default=None)
     args = parser.parse_args()
 
     from api.routes.transcription import run_pipeline_task
@@ -32,6 +34,8 @@ def main():
         source_url=args.source_url,
         trace_id=args.trace_id,
         separation_model=args.separation_model,
+        start_time=args.start_time,
+        end_time=args.end_time,
     )
 
 

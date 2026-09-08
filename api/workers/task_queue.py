@@ -115,6 +115,8 @@ class TaskQueue:
             trace_id = kwargs.get("trace_id")
             source_url = kwargs.get("source_url")
             separation_model = kwargs.get("separation_model")
+            start_time = kwargs.get("start_time")
+            end_time = kwargs.get("end_time")
 
             cmd = [_PYTHON, str(_RUNNER), str(job_id_arg)]
             if input_path:
@@ -125,6 +127,10 @@ class TaskQueue:
                 cmd += ["--trace-id", trace_id]
             if separation_model:
                 cmd += ["--separation-model", separation_model]
+            if start_time is not None:
+                cmd += ["--start-time", str(start_time)]
+            if end_time is not None:
+                cmd += ["--end-time", str(end_time)]
 
             log_fd = open(log_path, "w")
             proc = subprocess.Popen(
