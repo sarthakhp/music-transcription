@@ -416,7 +416,7 @@ def main() -> None:
         )
         win = _webview.windows[0]
         _register_media_permission_handler(win)
-        _webview.start(func=lambda: _set_dock_icon(resources))
+        _webview.start(func=lambda: _set_dock_icon(resources), private_mode=False)
         shutdown()
     else:
         import webbrowser
