@@ -1,0 +1,23 @@
+#!/bin/bash
+# AppImage entry point — called by the AppImage runtime on launch.
+# Resolves the actual AppDir (handles symlinks in the mount path) and
+# runs the bundled Python launcher.
+
+APPDIR="$(dirname "$(readlink -f "$0")")"
+RESOURCES="$APPDIR/resources"
+
+# Find the bundled Python binary
+PYTHON=""
+for candidate in python3.12 python3.11 python3.13 python3; do
+    if [ -x "$RESOURCES/python/bin/$candidate" ]; then
+        PYTHON="$RESOURCES/python/bin/$candidate"
+        break
+    fi
+done
+
+if [ -z "$PYTHON" ]; then
+    echo "ERROR: Bundled Python not found in $RESOURCES/python/bin/" >&2
+    exit 1
+fi
+
+exec "$PYTHON" "$RESOURCES/launcher.py" "$@"

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=MusicTranscriber
+Comment=AI-powered music transcription and practice tool
+Exec=MusicTranscriber
+Icon=MusicTranscriber
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Music;
+StartupWMClass=MusicTranscriber

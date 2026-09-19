@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>MusicTranscriber</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>Music Transcriber</string>
+
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>com.sarthak.musictranscriber</string>
+
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleExecutable</key>
+    <string>MusicTranscriber</string>
+
+    <!-- Minimum macOS version: Ventura (13.0) for MPS / Apple Silicon support -->
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+
+    <!-- Allow running on both Apple Silicon and Intel -->
+    <key>LSArchitecturePriority</key>
+    <array>
+        <string>arm64</string>
+        <string>x86_64</string>
+    </array>
+
+    <!-- Don't show in Dock as a background-only app -->
+    <key>LSUIElement</key>
+    <false/>
+
+    <!-- Suppress the "App downloaded from internet" quarantine warning text -->
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
+
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <!-- Microphone access is needed if the user records live audio -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>MusicTranscriber needs microphone access to record audio for transcription.</string>
+</dict>
+</plist>
