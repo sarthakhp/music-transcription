@@ -57,6 +57,14 @@ def _migrate_db():
                 )
                 conn.commit()
                 logger.info("Migrated: added stage_progress column to jobs")
+            if "display_name" not in columns:
+                conn.execute(
+                    __import__("sqlalchemy").text(
+                        "ALTER TABLE jobs ADD COLUMN display_name VARCHAR(255)"
+                    )
+                )
+                conn.commit()
+                logger.info("Migrated: added display_name column to jobs")
 
 
 def close_db():

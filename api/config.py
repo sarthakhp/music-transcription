@@ -1,7 +1,8 @@
+import os
 from pathlib import Path
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class Settings(BaseSettings):
@@ -11,31 +12,36 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore"
     )
-    
+
     api_host: str = Field(default="0.0.0.0", description="API server host")
     api_port: int = Field(default=8000, description="API server port")
     api_workers: int = Field(default=4, description="Number of worker processes")
-    
+
     storage_path: Path = Field(default=Path("./storage"), description="Base storage directory")
     max_file_size_mb: int = Field(default=100, description="Maximum upload file size in MB")
     job_retention_days: int = Field(default=7, description="Days to keep completed jobs")
-    
+
     max_concurrent_jobs: int = Field(default=3, description="Maximum concurrent processing jobs")
     enable_gpu: bool = Field(default=True, description="Enable GPU/MPS acceleration")
-    
+
     database_url: str = Field(
         default="sqlite:///./api.db",
         description="Database connection URL"
     )
-    
+
     cors_origins: str = Field(
         default="http://localhost:3000,http://localhost:8080,https://sarthakhp.github.io,http://localhost:60151,http://localhost:58877,http://localhost:51569",
         description="Comma-separated list of allowed CORS origins"
     )
-    
+    # Allow all localhost ports for Flutter dev server (random port each run)
+    cors_allow_localhost: bool = Field(
+        default=True,
+        description="If true, allow all http://localhost:* origins"
+    )
+
     log_level: str = Field(default="INFO", description="Logging level")
     log_file: Path = Field(default=Path("./logs/api.log"), description="Log file path")
-    
+
     separation_model_path: Path = Field(
         default=Path("models/separation"),
         description="Path to source separation models"
@@ -44,6 +50,28 @@ class Settings(BaseSettings):
         default=Path("models/chord_detection/btc_model.pt"),
         description="Path to chord detection model"
     )
+
+    @model_validator(mode="after")
+    def apply_data_dir(self) -> "Settings":
+        """When MT_DATA_DIR is set (bundled app), redirect all user-data paths to it.
+
+        This runs after all sources (.env file, env vars, Field defaults) are
+        resolved, so it unconditionally wins and cannot be accidentally overridden
+        by a stale .env file inside the bundle.
+        """
+        raw = os.environ.get("MT_DATA_DIR")
+        if not raw:
+            return self
+        base = Path(raw).expanduser().resolve()
+        self.storage_path = base / "storage"
+        self.database_url = f"sqlite:///{base / 'api.db'}"
+        self.log_file = base / "logs" / "api.log"
+        self.separation_model_path = base / "models" / "separation"
+        # Respect an explicit CHORD_MODEL_PATH (set by the launcher to the
+        # bundled copy so we don't re-download the 12 MB file on every user machine).
+        if not os.environ.get("CHORD_MODEL_PATH"):
+            self.chord_model_path = base / "models" / "chord_detection" / "btc_model.pt"
+        return self
 
     # --- Remote publishing (Firebase Storage) ---
     # When both are set, completed jobs are published to Firebase Storage so the

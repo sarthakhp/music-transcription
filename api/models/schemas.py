@@ -27,6 +27,7 @@ class JobResponse(BaseModel):
     message: Optional[str] = None
     
     input_filename: str
+    display_name: Optional[str] = None
     file_size: int
     separation_model: Optional[str] = None
 
@@ -69,12 +70,17 @@ class TranscribeResponse(BaseModel):
     message: str = "Job created successfully"
 
 
+class RenameJobRequest(BaseModel):
+    display_name: str
+
+
 class JobResultsResponse(BaseModel):
     job_id: str
     status: JobStatus
     progress: int
-    
+
     input_filename: str
+    display_name: Optional[str] = None
     duration: Optional[float] = None
     tempo_bpm: Optional[float] = None
     

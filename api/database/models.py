@@ -48,6 +48,7 @@ class Job(Base):
     separation_model = Column(String(64), nullable=True)
 
     input_filename = Column(String(255), nullable=False)
+    display_name = Column(String(255), nullable=True)  # user-editable label
     file_size = Column(Integer, nullable=False)
 
     duration = Column(Float, nullable=True)

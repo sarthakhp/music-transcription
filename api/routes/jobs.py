@@ -13,6 +13,7 @@ from api.models.schemas import (
     JobListResponse,
     JobStatusResponse,
     JobResultsResponse,
+    RenameJobRequest,
     StemInfo,
     StemsListResponse,
     CancelJobResponse,
@@ -378,6 +379,22 @@ async def retry_job(
     logger.info(f"Job {job_id} resubmitted for retry (reuse_input={has_input})")
 
     return TranscribeResponse(job_id=job_id, status=job.status, message=message)
+
+
+@router.patch("/{job_id}/rename", response_model=JobResponse)
+async def rename_job(
+    job_id: str,
+    body: RenameJobRequest,
+    db: Session = Depends(get_db)
+):
+    job = JobManager.get_job(db, job_id)
+    name = body.display_name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="display_name must not be empty")
+    job.display_name = name
+    db.commit()
+    db.refresh(job)
+    return job
 
 
 @router.delete("/{job_id}", response_model=DeleteJobResponse)
