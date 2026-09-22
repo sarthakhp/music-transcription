@@ -285,6 +285,60 @@ def wait_for_server(timeout_seconds: int = 30) -> bool:
     return False
 
 
+# ── Pywebview JS API ─────────────────────────────────────────────────────────
+
+class _JsApi:
+    """Methods exposed to Flutter/JS as window.pywebview.api.*"""
+
+    def pick_file(self, hint: str = "audio") -> "dict | None":
+        """Open a native OS file dialog and return the chosen file as base64.
+
+        hint: 'audio' (default) for audio/video files, 'json' for JSON files,
+              '*' for any file.
+
+        Returns {name: str, data: str (base64)} or None if cancelled.
+        """
+        import base64
+        try:
+            import webview
+        except ImportError:
+            return None
+
+        if hint == "json":
+            file_types = ("JSON Files (*.json)", "All Files (*.*)")
+        elif hint == "audio":
+            file_types = (
+                "Audio/Video Files (*.mp3;*.wav;*.flac;*.m4a;*.ogg;*.webm;*.mp4;*.mov;*.mkv;*.avi)",
+                "All Files (*.*)",
+            )
+        else:
+            file_types = ("All Files (*.*)",)
+
+        try:
+            result = webview.windows[0].create_file_dialog(
+                webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=file_types,
+            )
+        except Exception:
+            return None
+
+        if not result:
+            return None
+
+        path = result[0]
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            return None
+
+        return {
+            "name": os.path.basename(path),
+            "data": base64.b64encode(data).decode("ascii"),
+        }
+
+
 # ── macOS dock icon + media permissions ──────────────────────────────────────
 
 def _set_dock_icon(resources: Path) -> None:
@@ -413,6 +467,7 @@ def main() -> None:
             width=1400,
             height=900,
             min_size=(800, 600),
+            js_api=_JsApi(),
         )
         win = _webview.windows[0]
         _register_media_permission_handler(win)
