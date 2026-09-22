@@ -410,6 +410,27 @@ def _register_media_permission_handler(window) -> None:
     can interact with the Record tab.
     """
     def _on_loaded():
+        # Tell Flutter/JS that we're inside pywebview — more reliable than
+        # the pywebviewready event which can fire before our listener is added.
+        try:
+            window.evaluate_js(
+                "window.__inPywebview = true;"
+                "console.log('[bridge] __inPywebview set true from Python');"
+            )
+            dlog("[bridge] __inPywebview set via evaluate_js")
+        except Exception as e:
+            dlog(f"[bridge] evaluate_js failed: {e}")
+
+        # Diagnose mic access
+        try:
+            window.evaluate_js(
+                "console.log('[mic] mediaDevices=', !!(navigator.mediaDevices),"
+                " 'getUserMedia=', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),"
+                " 'protocol=', location.protocol);"
+            )
+        except Exception:
+            pass
+
         try:
             from webview.platforms.cocoa import BrowserView
             import AppKit
@@ -430,6 +451,7 @@ def _register_media_permission_handler(window) -> None:
                 def webView_requestMediaCapturePermissionForOrigin_initiatedByFrame_type_decisionHandler_(
                     self, wv, origin, frame, capture_type, handler
                 ):
+                    dlog(f"[mic] permission requested type={capture_type} origin={origin} — granting")
                     handler(1)  # WKPermissionDecisionGrant = 1
 
                 def forwardingTargetForSelector_(self, sel):
