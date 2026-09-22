@@ -21,6 +21,46 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
+# ── Debug log ────────────────────────────────────────────────────────────────
+# Written to Application Support so it survives app restarts and is easy to
+# find. Tail with: tail -f ~/Library/Application\ Support/MusicTranscriber/logs/launcher.log
+
+_debug_log_file = None
+
+def _init_debug_log(data_dir: Path) -> None:
+    global _debug_log_file
+    log_dir = data_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "launcher.log"
+    _debug_log_file = open(log_path, "a", buffering=1)  # line-buffered
+    # Redirect all print() output and uncaught stderr to the same file
+    sys.stdout = _Tee(sys.__stdout__, _debug_log_file)
+    sys.stderr = _Tee(sys.__stderr__, _debug_log_file)
+    dlog("=== launcher started ===")
+
+
+class _Tee:
+    def __init__(self, *streams):
+        self._streams = streams
+    def write(self, data):
+        for s in self._streams:
+            try: s.write(data)
+            except Exception: pass
+    def flush(self):
+        for s in self._streams:
+            try: s.flush()
+            except Exception: pass
+
+
+def dlog(msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    if _debug_log_file:
+        _debug_log_file.write(line + "\n")
+        _debug_log_file.flush()
+    else:
+        print(line, flush=True)
+
 
 # ── Versioning ───────────────────────────────────────────────────────────────
 # Bump REQUIREMENTS_VERSION whenever requirements.txt or requirements-api.txt
@@ -299,9 +339,11 @@ class _JsApi:
         Returns {name: str, data: str (base64)} or None if cancelled.
         """
         import base64
+        dlog(f"[pick_file] called hint={hint!r}")
         try:
             import webview
         except ImportError:
+            dlog("[pick_file] webview import failed")
             return None
 
         if hint == "json":
@@ -315,24 +357,31 @@ class _JsApi:
             file_types = ("All Files (*.*)",)
 
         try:
+            dlog("[pick_file] opening dialog")
             result = webview.windows[0].create_file_dialog(
                 webview.OPEN_DIALOG,
                 allow_multiple=False,
                 file_types=file_types,
             )
-        except Exception:
+            dlog(f"[pick_file] dialog returned: {result}")
+        except Exception as e:
+            dlog(f"[pick_file] dialog exception: {e}")
             return None
 
         if not result:
+            dlog("[pick_file] cancelled")
             return None
 
         path = result[0]
+        dlog(f"[pick_file] reading file: {path}")
         try:
             with open(path, "rb") as f:
                 data = f.read()
-        except OSError:
+        except OSError as e:
+            dlog(f"[pick_file] read error: {e}")
             return None
 
+        dlog(f"[pick_file] returning {len(data)} bytes for {os.path.basename(path)!r}")
         return {
             "name": os.path.basename(path),
             "data": base64.b64encode(data).decode("ascii"),
@@ -365,17 +414,17 @@ def _register_media_permission_handler(window) -> None:
             from webview.platforms.cocoa import BrowserView
             import AppKit
 
-            print(f"[mic] _on_loaded fired, window.uid={window.uid}", flush=True)
-            print(f"[mic] BrowserView.instances keys: {list(BrowserView.instances.keys())}", flush=True)
+            dlog(f"[mic] _on_loaded fired, window.uid={window.uid}")
+            dlog(f"[mic] BrowserView.instances keys: {list(BrowserView.instances.keys())}")
 
             bv = BrowserView.instances.get(window.uid)
             if bv is None or not hasattr(bv, 'webview'):
-                print(f"[mic] bv={bv}, has webview={hasattr(bv, 'webview') if bv else 'N/A'}", flush=True)
+                dlog(f"[mic] bv={bv}, has webview={hasattr(bv, 'webview') if bv else 'N/A'}")
                 return
 
             wkwebview = bv.webview
             original = wkwebview.UIDelegate()
-            print(f"[mic] wkwebview={wkwebview}, original UIDelegate={original}", flush=True)
+            dlog(f"[mic] wkwebview={wkwebview}, original UIDelegate={original}")
 
             class _MediaDelegate(AppKit.NSObject):
                 def webView_requestMediaCapturePermissionForOrigin_initiatedByFrame_type_decisionHandler_(
@@ -391,10 +440,10 @@ def _register_media_permission_handler(window) -> None:
             delegate = _MediaDelegate.alloc().init()
             wkwebview.setUIDelegate_(delegate)
             bv._media_delegate = delegate  # strong reference to prevent GC
-            print(f"[mic] UIDelegate override installed: {delegate}", flush=True)
+            dlog(f"[mic] UIDelegate override installed: {delegate}")
         except Exception as e:
             import traceback
-            print(f"[mic] setup FAILED: {e}", flush=True)
+            dlog(f"[mic] setup FAILED: {e}")
             traceback.print_exc()
 
     window.events.loaded += _on_loaded
@@ -424,6 +473,9 @@ def main() -> None:
     resources = get_resources()
     data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
+    _init_debug_log(data_dir)
+    dlog(f"resources={resources}")
+    dlog(f"data_dir={data_dir}")
 
     if needs_setup(data_dir):
         print("First-time setup required — opening setup window...", flush=True)
@@ -461,6 +513,7 @@ def main() -> None:
     print(f"MusicTranscriber is running at {url}", flush=True)
 
     if _webview is not None:
+        dlog("creating webview window with js_api")
         _webview.create_window(
             "Music Transcriber",
             url,
@@ -470,6 +523,7 @@ def main() -> None:
             js_api=_JsApi(),
         )
         win = _webview.windows[0]
+        dlog(f"window created uid={win.uid}, registering media handler")
         _register_media_permission_handler(win)
         _webview.start(func=lambda: _set_dock_icon(resources), private_mode=False)
         shutdown()
