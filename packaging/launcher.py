@@ -19,6 +19,11 @@ import signal
 import platform
 import subprocess
 import urllib.request
+import http.server
+import urllib.parse
+import base64
+import json
+import threading
 from pathlib import Path
 
 # ── Debug log ────────────────────────────────────────────────────────────────
@@ -347,14 +352,13 @@ class _JsApi:
             return None
 
         if hint == "json":
-            file_types = ("JSON Files (*.json)", "All Files (*.*)")
+            file_types = ("JSON(*.json)",)
         elif hint == "audio":
             file_types = (
-                "Audio/Video Files (*.mp3;*.wav;*.flac;*.m4a;*.ogg;*.webm;*.mp4;*.mov;*.mkv;*.avi)",
-                "All Files (*.*)",
+                "Audio Video(*.mp3;*.wav;*.flac;*.m4a;*.ogg;*.webm;*.mp4;*.mov;*.mkv;*.avi)",
             )
         else:
-            file_types = ("All Files (*.*)",)
+            file_types = ("All(*.*)",)
 
         try:
             dlog("[pick_file] opening dialog")
@@ -386,6 +390,99 @@ class _JsApi:
             "name": os.path.basename(path),
             "data": base64.b64encode(data).decode("ascii"),
         }
+
+
+# ── Local file-picker HTTP bridge ────────────────────────────────────────────
+# Flutter (in WKWebView) fetches http://127.0.0.1:47823/pick-file?hint=audio
+# to trigger a native OS file dialog without going through pywebview's JS
+# bridge (which has reliability issues with WKWebView gesture contexts).
+
+_PICKER_PORT = 47823
+
+
+class _PickerHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        if parsed.path == "/pick-file":
+            hint = params.get("hint", ["audio"])[0]
+            self._handle_pick(hint)
+        elif parsed.path == "/status":
+            self._json_response(200, b'{"ok":true}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def _handle_pick(self, hint: str) -> None:
+        try:
+            import webview
+        except ImportError:
+            dlog("[picker] webview not available")
+            self._json_response(503, b'{"error":"webview unavailable"}')
+            return
+
+        if hint == "json":
+            file_types = ("JSON(*.json)",)
+        elif hint == "audio":
+            file_types = (
+                "Audio Video(*.mp3;*.wav;*.flac;*.m4a;*.ogg;*.webm;*.mp4;*.mov;*.mkv;*.avi)",
+            )
+        else:
+            file_types = ("All(*.*)",)
+
+        dlog(f"[picker] opening dialog hint={hint!r}")
+        try:
+            result = webview.windows[0].create_file_dialog(
+                webview.OPEN_DIALOG, allow_multiple=False, file_types=file_types
+            )
+            dlog(f"[picker] dialog returned: {result}")
+        except Exception as e:
+            dlog(f"[picker] dialog error: {e}")
+            self._json_response(500, json.dumps({"error": str(e)}).encode())
+            return
+
+        if not result:
+            dlog("[picker] cancelled")
+            self._json_response(200, b"null")
+            return
+
+        path = result[0]
+        dlog(f"[picker] reading {path!r}")
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError as e:
+            dlog(f"[picker] read error: {e}")
+            self._json_response(500, json.dumps({"error": str(e)}).encode())
+            return
+
+        payload = json.dumps({
+            "name": os.path.basename(path),
+            "data": base64.b64encode(data).decode("ascii"),
+        }).encode("utf-8")
+        dlog(f"[picker] returning {len(data)} bytes for {os.path.basename(path)!r}")
+        self._json_response(200, payload)
+
+    def _json_response(self, status: int, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):  # silence default access-log noise
+        dlog(f"[picker-http] {fmt % args}")
+
+
+def _start_picker_server() -> None:
+    try:
+        srv = http.server.HTTPServer(("127.0.0.1", _PICKER_PORT), _PickerHandler)
+        dlog(f"[picker] HTTP server started on port {_PICKER_PORT}")
+        srv.serve_forever()
+    except Exception as e:
+        dlog(f"[picker] HTTP server failed to start: {e}")
 
 
 # ── macOS dock icon + media permissions ──────────────────────────────────────
@@ -448,7 +545,9 @@ def _register_media_permission_handler(window) -> None:
             dlog(f"[mic] wkwebview={wkwebview}, original UIDelegate={original}")
 
             class _MediaDelegate(AppKit.NSObject):
-                def webView_requestMediaCapturePermissionForOrigin_initiatedByFrame_type_decisionHandler_(
+                # Correct ObjC selector: webView:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:
+                # (NOT "ForOrigin" — that was a bug causing the method to never be called)
+                def webView_requestMediaCapturePermissionFor_initiatedByFrame_type_decisionHandler_(
                     self, wv, origin, frame, capture_type, handler
                 ):
                     dlog(f"[mic] permission requested type={capture_type} origin={origin} — granting")
@@ -547,6 +646,7 @@ def main() -> None:
         win = _webview.windows[0]
         dlog(f"window created uid={win.uid}, registering media handler")
         _register_media_permission_handler(win)
+        threading.Thread(target=_start_picker_server, daemon=True).start()
         _webview.start(func=lambda: _set_dock_icon(resources), private_mode=False)
         shutdown()
     else:
