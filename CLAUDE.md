@@ -51,3 +51,35 @@ app.add_middleware(
 - `pywebview private_mode=False` — required or SharedPreferences (Flutter) won't persist
 - Backend files inside the installed `.app` are at `Contents/Resources/backend/api/` — changes to the source repo don't auto-deploy there; use the deploy script
 - Job `display_name` overrides `video_title` and `input_filename` for display
+
+## DMG Debugging
+
+**Live logs** — tail this while the app is running:
+```bash
+tail -f ~/Library/Application\ Support/MusicTranscriber/logs/launcher.log
+```
+All `dlog(...)` calls in `launcher.py` write here with timestamps.
+
+**Hot-patching `launcher.py`** — no rebuild needed, just copy and restart the app:
+```bash
+cp packaging/launcher.py /Applications/MusicTranscriber.app/Contents/Resources/launcher.py
+```
+
+**What requires a full rebuild** (`bash packaging/macos/build.sh`):
+- `setup_deps.py` or `requirements-launcher.txt` changes (venv packages)
+- Flutter web build changes (or use `deploy_launchpad.sh` for just the frontend)
+- Bundled Python/ffmpeg changes
+
+## pywebview `create_file_dialog` file_types format
+
+pywebview validates filter strings with a strict regex — the format must be `"Description(*.ext1;*.ext2)"` with **no space before `(`** and **no slashes in the description**:
+
+```python
+# Correct
+file_types = ("Audio Video(*.mp3;*.wav;*.flac)", "JSON(*.json)", "All(*.*)")
+
+# Wrong — slash in description, space before paren
+file_types = ("Audio/Video Files (*.mp3;*.wav)", "All Files (*.*)")
+```
+
+The HTTP picker bridge (`_PickerHandler` on port 47823) is what the Flutter app uses to trigger the native dialog — it bypasses WKWebView's gesture-context restriction on pywebview's JS API.
