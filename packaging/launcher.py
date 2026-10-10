@@ -335,6 +335,12 @@ def wait_for_server(timeout_seconds: int = 30) -> bool:
 class _JsApi:
     """Methods exposed to Flutter/JS as window.pywebview.api.*"""
 
+    def log_from_js(self, msg: str) -> None:
+        """Browser console forwarding — see index.html's console override.
+        Lets us read Flutter/JS console output from launcher.log instead of
+        needing Safari Web Inspector attached to the WKWebView."""
+        dlog(f"[js] {msg}")
+
     def pick_file(self, hint: str = "audio") -> "dict | None":
         """Open a native OS file dialog and return the chosen file as base64.
 
@@ -647,7 +653,14 @@ def main() -> None:
         dlog(f"window created uid={win.uid}, registering media handler")
         _register_media_permission_handler(win)
         threading.Thread(target=_start_picker_server, daemon=True).start()
-        _webview.start(func=lambda: _set_dock_icon(resources), private_mode=False)
+        # debug=True enables Safari Web Inspector access (WKWebView
+        # isInspectable) for diagnosing the DMG's WebKit-only audio issues.
+        # Off by default; launch with MT_DEBUG=1 to open the inspector.
+        _webview.start(
+            func=lambda: _set_dock_icon(resources),
+            private_mode=False,
+            debug=os.environ.get("MT_DEBUG") == "1",
+        )
         shutdown()
     else:
         import webbrowser

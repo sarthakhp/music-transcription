@@ -169,4 +169,15 @@ async def health_check():
 # Must be mounted LAST so all /api/v1/* and /health routes take priority.
 _web_dir = os.environ.get("MT_WEB_DIR")
 if _web_dir and Path(_web_dir).is_dir():
-    app.mount("/", StaticFiles(directory=_web_dir, html=True), name="web")
+    class _NoCacheStaticFiles(StaticFiles):
+        """StaticFiles serves Last-Modified/ETag but no Cache-Control, which
+        lets WKWebView apply its own heuristic caching and serve stale JS
+        across app restarts after a redeploy. This is a local desktop app —
+        there's no benefit to caching these files at all."""
+
+        async def get_response(self, path, scope):
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+    app.mount("/", _NoCacheStaticFiles(directory=_web_dir, html=True), name="web")
