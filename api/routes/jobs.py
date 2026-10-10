@@ -2,7 +2,7 @@ import json
 import shutil
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
@@ -122,6 +122,7 @@ async def get_job_results(
         status=job.status,
         progress=job.progress,
         input_filename=job.input_filename,
+        audio_type=job.audio_type,
         duration=job.duration,
         tempo_bpm=job.tempo_bpm,
         stems=stems if stems else None,
@@ -361,6 +362,7 @@ async def retry_job(
             trace_id=get_trace_id(),
             source_url=None,
             separation_model=job.separation_model,
+            audio_type=job.audio_type,
         )
         message = "Retrying from existing audio — no re-download needed."
     else:
@@ -373,6 +375,7 @@ async def retry_job(
             trace_id=get_trace_id(),
             source_url=job.source_url,
             separation_model=job.separation_model,
+            audio_type=job.audio_type,
         )
         message = "Retrying — re-downloading audio from source URL."
 
@@ -385,6 +388,7 @@ async def retry_job(
 async def rename_job(
     job_id: str,
     body: RenameJobRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     job = JobManager.get_job(db, job_id)
@@ -394,6 +398,9 @@ async def rename_job(
     job.display_name = name
     db.commit()
     db.refresh(job)
+    # Keep the cloud copy's name in step (no-op if unpublished / no cloud).
+    from api.services.storage_publisher import try_sync_job_metadata
+    background_tasks.add_task(try_sync_job_metadata, job_id)
     return job
 
 

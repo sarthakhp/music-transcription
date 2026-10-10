@@ -26,6 +26,13 @@ class ProcessingStage(str, PyEnum):
     CHORDS = "chords"
 
 
+class AudioType(str, PyEnum):
+    """What the uploaded audio contains; decides which pipeline stages run."""
+    MIXED = "mixed"              # vocals + music: separate, then transcribe everything
+    VOCALS = "vocals"            # voice only: skip separation, instruments and chords
+    INSTRUMENTAL = "instrumental"  # music only: skip separation and vocal pitch
+
+
 class Job(Base):
     __tablename__ = "jobs"
     
@@ -46,6 +53,7 @@ class Job(Base):
     source_url = Column(Text, nullable=True)
     video_title = Column(String(512), nullable=True)
     separation_model = Column(String(64), nullable=True)
+    audio_type = Column(String(16), nullable=False, default=AudioType.MIXED.value)
 
     input_filename = Column(String(255), nullable=False)
     display_name = Column(String(255), nullable=True)  # user-editable label

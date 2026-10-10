@@ -205,6 +205,8 @@ def publish_job(db: Session, job_id: str) -> dict:
         "source_type": job.source_type,
         "source_url": job.source_url,
         "separation_model": job.separation_model,
+        "audio_type": job.audio_type,
+        "display_name": job.display_name,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "duration": job.duration,
@@ -234,12 +236,18 @@ def _update_index(bucket, manifest: dict) -> None:
         "tempo_bpm": manifest["tempo_bpm"],
         "num_chords": manifest["num_chords"],
         "manifest_url": manifest["manifest_url"],
+        "audio_type": manifest.get("audio_type") or "mixed",
+        "display_name": manifest.get("display_name"),
     }
 
     with _index_lock:
-        blob = bucket.blob(INDEX_PATH)
+        # get_blob loads the object's metadata (bucket.blob + exists() does
+        # not), which carries the download token the hosted viewer's index
+        # URL depends on.
+        existing = bucket.get_blob(INDEX_PATH)
+        blob = existing or bucket.blob(INDEX_PATH)
         index: dict = {"jobs": []}
-        if blob.exists():
+        if existing:
             try:
                 index = json.loads(blob.download_as_text())
             except (ValueError, UnicodeDecodeError):
@@ -256,12 +264,52 @@ def _update_index(bucket, manifest: dict) -> None:
         index["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         # Preserve the download token so the index URL stays stable across writes.
-        token = (blob.metadata or {}).get("firebaseStorageDownloadTokens") if blob.exists() else None
+        token = (existing.metadata or {}).get("firebaseStorageDownloadTokens") if existing else None
         token = token or str(uuid.uuid4())
         blob.metadata = {"firebaseStorageDownloadTokens": token}
         blob.upload_from_string(
             json.dumps(index, ensure_ascii=False), content_type="application/json"
         )
+
+
+def sync_job_metadata(job: Job) -> bool:
+    """Push a job's editable metadata (display name, audio type) to its
+    already-published manifest and index entry, without re-uploading any
+    media. Returns False if the job isn't published or cloud isn't set up."""
+    if not is_configured():
+        return False
+    bucket = _get_bucket()
+    object_path = f"jobs/{job.id}/manifest.json"
+    blob = bucket.get_blob(object_path)
+    if blob is None:
+        return False
+
+    manifest = json.loads(blob.download_as_text())
+    manifest["display_name"] = job.display_name
+    manifest["audio_type"] = job.audio_type
+
+    # Rewrite in place under the same token so existing URLs stay valid.
+    token = (blob.metadata or {}).get("firebaseStorageDownloadTokens") or str(uuid.uuid4())
+    blob.metadata = {"firebaseStorageDownloadTokens": token}
+    blob.upload_from_string(
+        json.dumps(manifest, ensure_ascii=False), content_type="application/json"
+    )
+    manifest["manifest_url"] = _download_url(bucket.name, object_path, token)
+    _update_index(bucket, manifest)
+    return True
+
+
+def try_sync_job_metadata(job_id: str) -> None:
+    """Best-effort metadata sync for a background task; never raises."""
+    from api.database.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        sync_job_metadata(JobManager.get_job(db, job_id))
+    except Exception as e:
+        logger.warning(f"Could not sync metadata for job {job_id}: {e}")
+    finally:
+        db.close()
 
 
 def try_publish_job(db: Session, job_id: str) -> Optional[dict]:

@@ -30,6 +30,7 @@ class JobResponse(BaseModel):
     display_name: Optional[str] = None
     file_size: int
     separation_model: Optional[str] = None
+    audio_type: str = "mixed"
 
     source_type: Optional[str] = None
     source_url: Optional[str] = None
@@ -81,6 +82,7 @@ class JobResultsResponse(BaseModel):
 
     input_filename: str
     display_name: Optional[str] = None
+    audio_type: str = "mixed"
     duration: Optional[float] = None
     tempo_bpm: Optional[float] = None
     

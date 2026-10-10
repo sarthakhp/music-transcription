@@ -9,6 +9,7 @@ from api.services.job_manager import JobManager
 from api.workers.task_queue import task_queue
 from api.workers.pipeline_worker import PipelineWorker
 from api.config import settings
+from api.database.models import AudioType
 from api.utils.exceptions import (
     FileTooLargeException,
     InvalidAudioFileException,
@@ -74,6 +75,7 @@ def run_pipeline_task(
     start_time: float | None = None,
     end_time: float | None = None,
     separation_model: str | None = None,
+    audio_type: str = AudioType.MIXED.value,
 ):
     """Entry point for the pipeline subprocess (spawned by TaskQueue).
 
@@ -135,13 +137,18 @@ def run_pipeline_task(
     from src.source_separation import SeparationConfig, download_model_if_needed, DEFAULT_MODEL_KEY
     model_key = separation_model or DEFAULT_MODEL_KEY
     config = SeparationConfig(model_key=model_key)
-    download_model_if_needed(config, progress_callback=model_download_progress)
+    # Voice-only and music-only audio skip separation, so the (large) model
+    # download would be wasted.
+    if AudioType(audio_type) is AudioType.MIXED:
+        download_model_if_needed(config, progress_callback=model_download_progress)
 
     from src.source_separation.memory import clear_memory
 
     db = SessionLocal()
     try:
-        worker = PipelineWorker(db, job_id, separation_config=config)
+        worker = PipelineWorker(
+            db, job_id, separation_config=config, audio_type=AudioType(audio_type)
+        )
         worker.run(
             input_audio_path=input_audio_path,
             source_url=source_url,
@@ -158,6 +165,7 @@ def run_pipeline_task(
 async def transcribe_audio(
     file: UploadFile = File(..., description="Audio file to transcribe"),
     separation_model: str | None = Form(None, description="Separation model key"),
+    audio_type: AudioType = Form(AudioType.MIXED, description="What the audio contains: mixed, vocals or instrumental"),
     db: Session = Depends(get_db),
 ):
     logger.info(f"Received transcription request for file: {file.filename}")
@@ -179,6 +187,7 @@ async def transcribe_audio(
         input_filename=file.filename,
         file_size=0,
         separation_model=model_key,
+        audio_type=audio_type.value,
     )
     
     job_storage_path = settings.get_job_storage_path(job.id)
@@ -205,6 +214,7 @@ async def transcribe_audio(
             input_file_path,
             trace_id=get_trace_id(),
             separation_model=model_key,
+            audio_type=audio_type.value,
         )
         
         logger.info(f"Job {job.id} submitted to task queue")

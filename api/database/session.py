@@ -65,6 +65,14 @@ def _migrate_db():
                 )
                 conn.commit()
                 logger.info("Migrated: added display_name column to jobs")
+            if "audio_type" not in columns:
+                conn.execute(
+                    __import__("sqlalchemy").text(
+                        "ALTER TABLE jobs ADD COLUMN audio_type VARCHAR(16) NOT NULL DEFAULT 'mixed'"
+                    )
+                )
+                conn.commit()
+                logger.info("Migrated: added audio_type column to jobs")
 
 
 def close_db():

@@ -17,8 +17,9 @@ from src.instrument_transcription import (
 )
 from src.instrument_transcription.exporter import export_instrument_transcription
 from src.chord_detection import ChordDetector, ChordDetectionConfig
+from src.chord_detection.models import ChordProgression
 
-from api.database.models import ProcessingStage
+from api.database.models import AudioType, ProcessingStage
 from api.services.progress_tracker import ProgressTracker
 from api.services.job_manager import JobManager
 from api.config import settings
@@ -29,9 +30,16 @@ logger = get_logger("pipeline_worker")
 
 class PipelineWorker:
     
-    def __init__(self, db: Session, job_id: str, separation_config: SeparationConfig | None = None):
+    def __init__(
+        self,
+        db: Session,
+        job_id: str,
+        separation_config: SeparationConfig | None = None,
+        audio_type: AudioType = AudioType.MIXED,
+    ):
         self.db = db
         self.job_id = job_id
+        self.audio_type = audio_type
         self.separation_config = separation_config or SeparationConfig()
         self.progress_tracker = ProgressTracker(db, job_id)
         self.job_storage_path = settings.get_job_storage_path(job_id)
@@ -62,34 +70,49 @@ class PipelineWorker:
             if source_url:
                 input_audio_path = self._run_download(source_url, start_time, end_time)
 
-            stems = self._run_separation(input_audio_path)
-            
+            if self.audio_type is AudioType.MIXED:
+                stems = self._run_separation(input_audio_path)
+            else:
+                stems = self._run_passthrough_separation(input_audio_path)
+
+            # Voice-only audio is its own vocals stem. Music-only audio has no
+            # vocals, so the vocal stage falls back to tempo detection alone.
+            vocals_stem = stems.get("vocals")
+            if self.audio_type is AudioType.VOCALS:
+                vocals_stem = stems.get("original") or input_audio_path
+
             transcription_result = self._run_transcription(
-                stems.get("vocals"),
+                vocals_stem,
                 input_audio_path
             )
+            tempo_bpm = transcription_result.get("tempo_bpm")
 
             # For 2-stem models (vocals + instrumental), the instrumental
             # stem contains everything non-vocal. Use it as the "other" stem
-            # fallback for instrument transcription.
+            # fallback for instrument transcription. Music-only audio has
+            # nothing to remove, so the whole mix plays that role.
             bass_stem = stems.get("bass")
             other_stem = stems.get("other") or stems.get("instrumental")
-
-            instrument_result = self._run_instrument_transcription(
-                bass_stem,
-                other_stem,
-                transcription_result.get("tempo_bpm"),
-            )
+            if self.audio_type is AudioType.INSTRUMENTAL:
+                other_stem = stems.get("original")
 
             instrumental_fallback = (
                 stems.get("instrumental") or stems.get("other") or stems.get("original")
             )
-            chord_progression = self._run_chord_detection(
-                stems.get("bass"),
-                stems.get("other"),
-                instrumental_fallback,
-                transcription_result.get("tempo_bpm")
-            )
+
+            if self.audio_type is AudioType.VOCALS:
+                # No accompaniment to analyse; still write (empty) outputs
+                # because the viewer expects instruments and chords files.
+                self._skip_instrument_transcription(tempo_bpm)
+                self._skip_chord_detection(transcription_result.get("duration"), tempo_bpm)
+            else:
+                self._run_instrument_transcription(bass_stem, other_stem, tempo_bpm)
+                self._run_chord_detection(
+                    stems.get("bass"),
+                    stems.get("other"),
+                    instrumental_fallback,
+                    tempo_bpm,
+                )
             
             self.progress_tracker.complete_job()
             logger.info(f"Pipeline completed successfully for job {self.job_id}")
@@ -223,6 +246,62 @@ class PipelineWorker:
 
         return stem_paths
     
+    def _run_passthrough_separation(self, input_audio_path: Path) -> dict:
+        """Stage 1 for voice-only / music-only audio: nothing to separate, so
+        just save the original as the job's only stem."""
+        logger.info(
+            f"Stage 1: skipping source separation for job {self.job_id} "
+            f"(audio_type={self.audio_type.value})"
+        )
+        self.progress_tracker.update_separation(20, "Preparing audio (no separation needed)")
+
+        base_filename = f"{self.job_id}_{input_audio_path.stem}"
+        original_path = copy_original_audio(
+            input_audio_path=input_audio_path,
+            output_dir=self.separated_dir,
+            output_format="mp3",
+            bitrate="320k",
+            verbose=False,
+            base_filename=base_filename,
+        )
+        if original_path is None:
+            raise RuntimeError("Failed to prepare the original audio")
+
+        JobManager.update_file_paths(
+            self.db,
+            self.job_id,
+            original_mp3_path=str(original_path),
+            stem_paths={},
+        )
+        self.progress_tracker.complete_separation("Separation skipped")
+        return {"original": original_path}
+
+    def _skip_instrument_transcription(self, tempo_bpm: float | None):
+        logger.info(f"Stage 3: skipping instrument transcription for job {self.job_id}")
+        self.progress_tracker.start_instruments("Skipping instruments (voice-only audio)")
+        instruments_output_path = self.instruments_dir / f"{self.job_id}_instruments.json"
+        export_instrument_transcription(
+            InstrumentTranscriptionResult(), instruments_output_path, tempo_bpm=tempo_bpm
+        )
+        JobManager.update_file_paths(
+            self.db, self.job_id, instruments_json_path=str(instruments_output_path)
+        )
+        self.progress_tracker.complete_instruments("Instrument transcription skipped")
+
+    def _skip_chord_detection(self, duration: float | None, tempo_bpm: float | None):
+        logger.info(f"Stage 4: skipping chord detection for job {self.job_id}")
+        self.progress_tracker.start_chords("Skipping chords (voice-only audio)")
+        chords_output_path = self.chords_dir / f"{self.job_id}_chords.json"
+        ChordDetector(ChordDetectionConfig()).save_json(
+            ChordProgression(duration=duration or 0.0, tempo_bpm=tempo_bpm or 120.0),
+            chords_output_path,
+        )
+        JobManager.update_job_metadata(self.db, self.job_id, num_chords=0)
+        JobManager.update_file_paths(
+            self.db, self.job_id, chords_json_path=str(chords_output_path)
+        )
+        self.progress_tracker.complete_chords("Chord detection skipped")
+
     def _run_transcription(self, vocals_path: Path | None, original_audio_path: Path) -> dict:
         logger.info(f"Stage 2: Vocal Transcription for job {self.job_id}")
 
@@ -238,9 +317,19 @@ class PipelineWorker:
                 tempo_bpm = DEFAULT_TEMPO_BPM
             sf_info = sf.info(str(original_audio_path))
             duration = sf_info.duration
+            frames_output_path = self.transcription_dir / f"{self.job_id}_processed_frames.json"
+            export_processed_frames(
+                processed_frames=[],
+                output_path=frames_output_path,
+                original_song_path=original_audio_path,
+                bpm=tempo_bpm,
+            )
             JobManager.update_job_metadata(
                 self.db, self.job_id,
                 duration=duration, tempo_bpm=tempo_bpm, num_frames=0
+            )
+            JobManager.update_file_paths(
+                self.db, self.job_id, frames_json_path=str(frames_output_path)
             )
             self.progress_tracker.complete_transcription(f"Tempo detected: {tempo_bpm:.1f} BPM (no vocals)")
             return {"tempo_bpm": tempo_bpm, "duration": duration, "num_frames": 0}

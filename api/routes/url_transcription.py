@@ -15,6 +15,7 @@ from api.workers.task_queue import task_queue
 from api.utils.exceptions import TooManyJobsException
 from api.utils.logging import get_logger
 from api.config import settings
+from api.database.models import AudioType
 
 logger = get_logger("url_transcription_routes")
 
@@ -26,6 +27,7 @@ class TranscribeURLRequest(BaseModel):
     start_time: float | None = None
     end_time: float | None = None
     separation_model: str | None = None
+    audio_type: AudioType = AudioType.MIXED
 
     @field_validator("url")
     @classmethod
@@ -145,6 +147,7 @@ async def transcribe_url(
         source_url=request.url,
         video_title=display_title,
         separation_model=model_key,
+        audio_type=request.audio_type.value,
     )
 
     # Submit to pipeline subprocess — download happens as Stage 0
@@ -161,6 +164,7 @@ async def transcribe_url(
         start_time=request.start_time,
         end_time=request.end_time,
         separation_model=model_key,
+        audio_type=request.audio_type.value,
     )
 
     logger.info(f"URL job {job.id} submitted: {metadata.title!r}")

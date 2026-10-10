@@ -10,7 +10,7 @@ from api.database.session import init_db, close_db, SessionLocal
 from api.database.models import JobStatus
 from api.middleware.context import TraceIDMiddleware
 from api.utils.logging import setup_logging, get_logger
-from api.routes import transcription, jobs, url_transcription
+from api.routes import transcription, jobs, url_transcription, cloud
 from api.workers.task_queue import task_queue
 from api.models.schemas import HealthResponse
 from api.services.job_manager import JobManager
@@ -41,6 +41,7 @@ app.add_middleware(
 app.include_router(transcription.router)
 app.include_router(url_transcription.router)
 app.include_router(jobs.router)
+app.include_router(cloud.router)
 
 
 def _recover_orphaned_jobs():

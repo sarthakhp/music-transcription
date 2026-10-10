@@ -108,13 +108,14 @@ class TaskQueue:
 
             # Build CLI args from positional args and kwargs.
             # submit_job is called as: submit_job(job_id, func, job_id, input_path,
-            #   trace_id=..., source_url=..., separation_model=...)
+            #   trace_id=..., source_url=..., separation_model=..., audio_type=...)
             # args[0] = job_id, args[1] = input_audio_path
             job_id_arg = args[0] if args else job_id
             input_path = args[1] if len(args) > 1 else None
             trace_id = kwargs.get("trace_id")
             source_url = kwargs.get("source_url")
             separation_model = kwargs.get("separation_model")
+            audio_type = kwargs.get("audio_type")
             start_time = kwargs.get("start_time")
             end_time = kwargs.get("end_time")
 
@@ -127,6 +128,8 @@ class TaskQueue:
                 cmd += ["--trace-id", trace_id]
             if separation_model:
                 cmd += ["--separation-model", separation_model]
+            if audio_type:
+                cmd += ["--audio-type", audio_type]
             if start_time is not None:
                 cmd += ["--start-time", str(start_time)]
             if end_time is not None:

@@ -7,7 +7,7 @@
 ## Architecture
 - **FastAPI** backend at `api/` — routes, services, workers, database
 - **SQLite** database via SQLAlchemy at `api.db`; schema migrations in `api/database/session.py` using additive `ALTER TABLE ADD COLUMN` (no Alembic)
-- **Job pipeline**: upload → separate stems (Demucs) → transcribe pitch (CREPE) → chord detection → store results
+- **Job pipeline**: upload → separate stems → transcribe vocal pitch → instrument notes → chord detection → store results. Per-job `audio_type` (`mixed` default | `vocals` | `instrumental`, `AudioType` in `api/database/models.py`) decides which stages run; it flows route → `JobManager.create_job` → `task_queue` kwargs → `job_runner --audio-type` → `PipelineWorker`, and retry reuses `job.audio_type`. `vocals`/`instrumental` skip separation (original is the only stem) and the model download. Skipped stages still write **empty-but-valid** frames/instruments/chords JSON, because the viewer errors on a missing frames or chords file.
 - **Storage**: audio files in `files/`, processed outputs in `storage/`, models in `models/`
 - **Packaging**: `packaging/` builds the macOS `.app` via pywebview; the Flutter web frontend is bundled inside
 
@@ -20,7 +20,10 @@
 | `api/database/session.py` | DB init + `_migrate_db()` for additive schema migrations |
 | `api/database/models.py` | SQLAlchemy Job model (`display_name` column added) |
 | `api/models/schemas.py` | Pydantic response schemas (`JobResponse`, `RenameJobRequest`, etc.) |
-| `api/workers/` | Background processing workers |
+| `api/workers/` | Background processing workers (`pipeline_worker.py` = stage logic, `task_queue.py` = subprocess spawn, `job_runner.py` = CLI entry) |
+| `api/services/storage_publisher.py` | Publishes completed jobs to Firebase Storage; `sync_job_metadata` pushes display name / audio type to an already-published job |
+| `api/services/cloud_library.py` + `api/routes/cloud.py` | List the cloud index and **import** a cloud-only job into local storage (same id, same on-disk layout, so every existing endpoint serves it) |
+| `api/services/settings_sync.py` | Per-song viewer settings at `settings/<job_id>.json` in the bucket (`GET/PUT /api/v1/cloud/jobs/{id}/settings`) |
 | `packaging/launcher.py` | pywebview launcher — `private_mode=False` required for preferences |
 
 ## Dev Workflow
@@ -37,6 +40,16 @@ if "column_name" not in columns:
     conn.commit()
 ```
 
+## Cloud storage (Firebase)
+Layout: `index.json` (summaries), `jobs/<id>/{manifest,frames,chords,instruments}.json` + `*.mp3`, `settings/<id>.json`. Reads are public via download-token URLs; **anonymous writes are denied** (only the backend's service account writes), so the hosted viewer/phone are read-only.
+- **Never overwrite a bucket object without keeping its `firebaseStorageDownloadTokens` metadata.** The hosted viewer's `FIREBASE_INDEX_URL` (a CI variable, also baked into the deployed `main.dart.js`) includes `index.json`'s token; losing it breaks the hosted site. Use `bucket.get_blob()` (loads metadata; `blob()` + `exists()` does not) or `blob.patch()`.
+- Settings objects use a deterministic token (`uuid5(NAMESPACE_URL, "music-transcription-settings:<id>")`) so clients build the URL from the job id alone; the Dart side mirrors it (`settingsToken`).
+- Manifest/index carry `display_name` and `audio_type`; `PATCH /rename` syncs them in a background task.
+
+## Testing the backend safely
+- Run a scratch server with `MT_DATA_DIR=<tmp> CHORD_MODEL_PATH=<repo model> uvicorn api.main:app --port <other>`; `MT_WEB_DIR=<flutter build/web>` serves the frontend from it.
+- **The repo `.env` enables Firebase publishing.** A scratch server that completes a job publishes to the REAL bucket. Blank `FIREBASE_CREDENTIALS_PATH`/`FIREBASE_STORAGE_BUCKET` unless the test is deliberately read-only cloud access, and delete any test objects afterwards.
+
 ## CORS Setup
 ```python
 app.add_middleware(
@@ -49,7 +62,7 @@ app.add_middleware(
 
 ## Gotchas
 - `pywebview private_mode=False` — required or SharedPreferences (Flutter) won't persist
-- Backend files inside the installed `.app` are at `Contents/Resources/backend/api/` — changes to the source repo don't auto-deploy there; use the deploy script
+- Backend files inside the installed `.app` are at `Contents/Resources/backend/api/`. `deploy_launchpad.sh` (viewer repo) rsyncs `api/` there; `src/`, `requirements`, bundled Python/ffmpeg changes still need `packaging/macos/build.sh`. The app must be restarted, and the user's DB is migrated on next start
 - Job `display_name` overrides `video_title` and `input_filename` for display
 
 ## DMG Debugging

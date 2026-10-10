@@ -27,6 +27,7 @@ class JobManager:
         source_url: Optional[str] = None,
         video_title: Optional[str] = None,
         separation_model: Optional[str] = None,
+        audio_type: str = "mixed",
     ) -> Job:
         active_jobs = JobManager.count_active_jobs(db)
         if active_jobs >= settings.max_concurrent_jobs:
@@ -41,6 +42,7 @@ class JobManager:
             source_url=source_url,
             video_title=video_title,
             separation_model=separation_model,
+            audio_type=audio_type,
             status=JobStatus.QUEUED,
             progress=0,
             created_at=utc_now()
@@ -50,7 +52,7 @@ class JobManager:
         db.commit()
         db.refresh(job)
 
-        logger.info(f"Created job {job_id} for file {input_filename} (model={separation_model})")
+        logger.info(f"Created job {job_id} for file {input_filename} (model={separation_model}, audio_type={audio_type})")
         return job
     
     @staticmethod
