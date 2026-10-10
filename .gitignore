@@ -107,5 +107,6 @@ Music API Server.app/
 Server Control.app/
 
 # claude
-CLAUDE.mdpackaging/_build/
+CLAUDE.md
+packaging/_build/
 packaging/_cache/
