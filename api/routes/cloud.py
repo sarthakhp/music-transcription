@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -76,3 +76,15 @@ async def put_job_settings(job_id: str, request: Request, db: Session = Depends(
         logger.warning(f"Could not store settings for {job_id}: {e}")
         raise HTTPException(status_code=502, detail="Cloud storage unavailable")
     return {"stored": stored}
+
+
+@router.post("/sync", status_code=202)
+def sync_cloud(background_tasks: BackgroundTasks):
+    """Publish any completed local jobs that are missing from the cloud. Runs
+    in the background; the cloud list reflects the result shortly after."""
+    from api.services.storage_publisher import publish_missing_jobs
+
+    if not cloud_library.is_configured():
+        return {"started": False}
+    background_tasks.add_task(publish_missing_jobs, True)
+    return {"started": True}

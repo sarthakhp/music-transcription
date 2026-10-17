@@ -21,7 +21,8 @@ local-only runs are unaffected.
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -180,23 +181,30 @@ def publish_job(db: Session, job_id: str) -> dict:
     bucket = _get_bucket()
     artifacts = _collect_artifacts(job)
 
-    files: dict = {"stems": {}}
-    for key, path in artifacts.items():
+    def upload(item: tuple[str, Path]) -> tuple[str, str]:
+        key, path = item
         if key.startswith("stem:"):
             stem_name = key.split(":", 1)[1]
-            object_path = f"jobs/{job_id}/{stem_name}.mp3"
-            files["stems"][stem_name] = _upload_file(bucket, object_path, path)
-        elif key == "instruments":
+            return key, _upload_file(bucket, f"jobs/{job_id}/{stem_name}.mp3", path)
+        if key == "instruments":
             # Reshape to the viewer's expected shape so the Flutter parser
             # works unchanged (mirrors the /instruments endpoint transform).
             data = _viewer_instruments(json.loads(path.read_text()), job_id)
-            files[key] = _upload_json(bucket, f"jobs/{job_id}/instruments.json", data)
-        else:
-            # frames.json / chords.json are already in the shape the viewer
-            # parses; upload them verbatim.
-            ext = path.suffix
-            object_path = f"jobs/{job_id}/{key}{ext}"
-            files[key] = _upload_file(bucket, object_path, path)
+            return key, _upload_json(bucket, f"jobs/{job_id}/instruments.json", data)
+        # frames.json / chords.json are already in the shape the viewer
+        # parses; upload them verbatim.
+        return key, _upload_file(bucket, f"jobs/{job_id}/{key}{path.suffix}", path)
+
+    # The files are independent, and a job is several MB of audio, so upload
+    # them in parallel: a serial upload can outlast the app's shutdown grace
+    # period and get killed half-way.
+    files: dict = {"stems": {}}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for key, url in pool.map(upload, artifacts.items()):
+            if key.startswith("stem:"):
+                files["stems"][key.split(":", 1)[1]] = url
+            else:
+                files[key] = url
 
     manifest = {
         "id": job.id,
@@ -310,6 +318,57 @@ def try_sync_job_metadata(job_id: str) -> None:
         logger.warning(f"Could not sync metadata for job {job_id}: {e}")
     finally:
         db.close()
+
+
+_sync_lock = threading.Lock()
+
+# A job that completed very recently may still be publishing in its own
+# pipeline process; leave those alone unless the caller forces a sync.
+_RECENT_JOB_GRACE = timedelta(minutes=5)
+
+
+def publish_missing_jobs(force: bool = False) -> list[str]:
+    """Publish every completed local job that is absent from the cloud index.
+
+    Self-heals publishes that never finished (the app quit mid-upload, the
+    network dropped, ...). Best-effort per job: one failure doesn't stop the
+    rest. Returns the ids that were published.
+    """
+    if not (is_configured() and settings.publish_on_complete):
+        return []
+    if not _sync_lock.acquire(blocking=False):
+        return []  # a sync is already running
+    from api.database.session import SessionLocal
+
+    published: list[str] = []
+    db = SessionLocal()
+    try:
+        bucket = _get_bucket()
+        index_blob = bucket.get_blob(INDEX_PATH)
+        in_cloud = (
+            {j.get("id") for j in json.loads(index_blob.download_as_text()).get("jobs", [])}
+            if index_blob
+            else set()
+        )
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - _RECENT_JOB_GRACE
+        for job in db.query(Job).filter(Job.status == JobStatus.COMPLETED).all():
+            if job.id in in_cloud:
+                continue
+            if not force and job.completed_at and job.completed_at > cutoff:
+                continue
+            try:
+                publish_job(db, job.id)
+                published.append(job.id)
+            except Exception as e:
+                logger.error(f"Resync could not publish job {job.id}: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Cloud resync failed: {e}", exc_info=True)
+    finally:
+        db.close()
+        _sync_lock.release()
+    if published:
+        logger.info(f"Resync published {len(published)} job(s): {published}")
+    return published
 
 
 def try_publish_job(db: Session, job_id: str) -> Optional[dict]:

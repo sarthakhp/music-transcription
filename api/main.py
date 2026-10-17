@@ -128,6 +128,12 @@ async def startup_event():
         "(spawn subprocesses cannot inherit parent MPS/GPU state)"
     )
 
+    # Publish any completed jobs that never reached the cloud (e.g. the app was
+    # quit mid-upload). Runs in the background so startup isn't delayed.
+    import threading
+    from api.services.storage_publisher import publish_missing_jobs
+    threading.Timer(20.0, publish_missing_jobs).start()
+
     logger.info("API startup complete")
 
 

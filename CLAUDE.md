@@ -45,6 +45,7 @@ Layout: `index.json` (summaries), `jobs/<id>/{manifest,frames,chords,instruments
 - **Never overwrite a bucket object without keeping its `firebaseStorageDownloadTokens` metadata.** The hosted viewer's `FIREBASE_INDEX_URL` (a CI variable, also baked into the deployed `main.dart.js`) includes `index.json`'s token; losing it breaks the hosted site. Use `bucket.get_blob()` (loads metadata; `blob()` + `exists()` does not) or `blob.patch()`.
 - Settings objects use a deterministic token (`uuid5(NAMESPACE_URL, "music-transcription-settings:<id>")`) so clients build the URL from the job id alone; the Dart side mirrors it (`settingsToken`).
 - Manifest/index carry `display_name` and `audio_type`; `PATCH /rename` syncs them in a background task.
+- **Publishing can be cut short**: it runs at the end of the job subprocess, and `task_queue.shutdown` kills jobs 30s after the app quits (this left a finished job local-only once). Uploads are parallel to stay fast, and `publish_missing_jobs()` (startup hook after 20s, plus `POST /api/v1/cloud/sync`) publishes any COMPLETED job absent from the index, skipping ones completed in the last 5 min unless forced. Check `logs/job_<id>.log` for a missing "Published job" line.
 
 ## Testing the backend safely
 - Run a scratch server with `MT_DATA_DIR=<tmp> CHORD_MODEL_PATH=<repo model> uvicorn api.main:app --port <other>`; `MT_WEB_DIR=<flutter build/web>` serves the frontend from it.
