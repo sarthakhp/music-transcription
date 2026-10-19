@@ -97,3 +97,6 @@ file_types = ("Audio/Video Files (*.mp3;*.wav)", "All Files (*.*)")
 ```
 
 The HTTP picker bridge (`_PickerHandler` on port 47823) is what the Flutter app uses to trigger the native dialog — it bypasses WKWebView's gesture-context restriction on pywebview's JS API.
+
+## Tempo detection
+`src/vocal_transcription/tempo_estimator.py` (numpy+librosa only) is the primary detector: multi-envelope tempogram, harmonic-support scoring with a prior around 110 BPM, refined from the beat grid. BeatNet is kept as a fallback but fails here (madmom needs the removed `np.int`), so don't rely on it. Half/double and 3:2 ambiguity remains, which is why the viewer lets users edit BPM.

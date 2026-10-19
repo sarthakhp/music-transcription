@@ -63,6 +63,14 @@ class TempoDetector:
             logger.debug(f"BeatNet failed: {e}")
             return None
 
+    def _detect_with_estimator(self, audio_path: str) -> float | None:
+        try:
+            from .tempo_estimator import estimate_tempo
+            return estimate_tempo(audio_path)
+        except Exception as e:
+            logger.warning(f"Tempo estimator failed: {e}")
+            return None
+
     def _detect_with_librosa(self, audio_path: str) -> float | None:
         try:
             import librosa
@@ -83,6 +91,10 @@ class TempoDetector:
 
     def detect(self, audio_path: str | Path) -> float:
         audio_path = str(audio_path)
+
+        tempo = self._detect_with_estimator(audio_path)
+        if tempo is not None:
+            return tempo
 
         tempo = self._detect_with_beatnet(audio_path)
         if tempo is not None:
